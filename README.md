@@ -6,16 +6,8 @@ Of course\! Here is a more polished and professionally formatted version of your
 
 Welcome to the 2D Metaverse Collaboration Platform\! This is a real-time, interactive 2D world designed for seamless team collaboration. It features integrated video and voice chat, public and private rooms, and a secure, role-based access system.
 
-[](https://www.google.com/search?q=https://codecov.io/gh/prashantdubeypng/metaverse)
-[](https://opensource.org/licenses/MIT)
 
 -----
-
-### 📸 Screenshots & Demo
-
-*(Here you can add a link to a live demo or embed screenshots/GIFs of your platform)*
-
-*A preview of the interactive workspace.*
 
 ## 🚀 Key Features
 
