@@ -1,8 +1,15 @@
+Of course\! Here is a more polished and professionally formatted version of your README file. It's structured for better readability and visual appeal on platforms like GitHub.
+
+-----
 
 # 🎮 2D Metaverse Collaboration Platform
 
 Welcome to the 2D Metaverse Collaboration Platform\! This is a real-time, interactive 2D world designed for seamless team collaboration. It features integrated video and voice chat, public and private rooms, and a secure, role-based access system.
 
+[](https://www.google.com/search?q=https://codecov.io/gh/prashantdubeypng/metaverse)
+[](https://opensource.org/licenses/MIT)
+
+-----
 
 ### 📸 Screenshots & Demo
 
@@ -94,6 +101,9 @@ Follow these instructions to get a local development environment up and running.
 4.  **Run in Development Mode:**
     This command will start the frontend and backend servers concurrently.
 
+    ```bash
+    npm run dev
+    ```
 
     The application should now be running on `http://localhost:3000`.
 
@@ -101,6 +111,9 @@ Follow these instructions to get a local development environment up and running.
 
 To run the full test suite and see the coverage report, use the following command:
 
+```bash
+npm run test
+```
 
 ## 🐳 Docker Deployment
 
@@ -108,10 +121,16 @@ The application is fully containerized for easy and consistent deployments.
 
 1.  **Build the Docker image:**
 
+    ```bash
+    docker build -t metaverse-app .
+    ```
 
 2.  **Run using Docker Compose:**
     `docker-compose` will build the image and start the container, along with a MongoDB service if configured.
 
+    ```bash
+    docker-compose up
+    ```
 
 ## ☸️ Kubernetes Deployment
 
@@ -121,6 +140,10 @@ The project includes Kubernetes manifests for deploying to a cluster like AWS EK
 
 2.  **Apply the Kubernetes manifests:**
     This single command applies all configurations located in the `k8s/` directory.
+
+    ```bash
+    kubectl apply -f k8s/
+    ```
 
     This will set up the following resources:
 
