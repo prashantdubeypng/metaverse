@@ -1,5 +1,3 @@
-Of course\! Here is a more polished and professionally formatted version of your README file. It's structured for better readability and visual appeal on platforms like GitHub.
-
 -----
 
 # 🎮 2D Metaverse Collaboration Platform
@@ -32,8 +30,6 @@ Welcome to the 2D Metaverse Collaboration Platform\! This is a real-time, intera
 ## 📐 Architecture
 
 The platform uses a scalable microservices-oriented architecture. The frontend communicates with the backend via a REST API for standard requests and a WebSocket connection for real-time events. Peer-to-peer WebRTC connections are established for video/voice chat to minimize server load.
-
-```mermaid
 flowchart TD
     A[User's Browser] --> B[React Frontend];
     B -->|REST API (HTTPS)| C[Express Backend];
