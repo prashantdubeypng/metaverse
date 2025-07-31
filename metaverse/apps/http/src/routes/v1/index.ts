@@ -1,0 +1,15 @@
+import { Router } from 'express';
+export const router = Router();
+router.get('/signup',(req , res)=>{
+res.send('Signup route is working');
+});
+router.get('/login',(req,res)=>{
+res.send('Login route is working')
+});
+router.get('/elements',(req,res)=>{
+res.send('Elements route is working');
+});
+router.get('/avatars',(req,res)=>{
+res.send('Avatars route is working');
+});
+
