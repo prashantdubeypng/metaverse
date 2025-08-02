@@ -1,62 +1,105 @@
-// describe block we use to test the code
-const axios = require("axios")
-// for now to test we use hard codeded url 
-const backend_url = "http://localhost:3000"
-// This to check is our sign up url working
-describe("auth",()=>{
-    test("User is able to signup only once",async()=>{
-        const username = "prashant"+Math.random();
+const axios = require("axios");
+const backend_url = "http://localhost:3000";
+
+describe("auth", () => {
+    test("User is able to signup only once", async () => {
+        const username = "prashant" + Math.random();
         const password = "123456";
-       const response = await axios.post(backend_url+"/api/v1/signup",{
-            username,
-            password,
-            type:"admin"
-        })
-        // if geting 200 that be working good
-        expect(response.statusCode),toBe(200)
-        // to send again signup for same id and password 
-        // it should reject the req
-        const updatedresponse = await axios.post(backend_url+"/api/v1/signup",{
-            username,
-            password,
-            type:"admin"
-        })
-        expect(updatedresponse.statusCode).toBe(400)
-    })
-    test("sign up server get send 400 if the username is empty",async()=>{
-         const username = "prashant"+Math.random();
+        
+        try {
+            const response = await axios.post(backend_url + "/api/v1/signup", {
+                username,
+                password,
+                type: "ADMIN" // Fixed: should be "Admin" not "admin"
+            });
+            
+            // Fixed: Added dot and expect 201 for creation
+            expect(response.status).toBe(201);
+            
+            // Try to signup again with same credentials
+            try {
+                const updatedresponse = await axios.post(backend_url + "/api/v1/signup", {
+                    username,
+                    password,
+                    type: "ADMIN"
+                });
+                // This should not execute
+                expect(true).toBe(false);
+            } catch (error) {
+                // Fixed: Expect 409 for conflict (user already exists)
+                expect(error.response.status).toBe(409);
+            }
+        } catch (error) {
+            console.error("Signup failed:", error.response?.data);
+            throw error;
+        }
+    });
+
+    test("signup server sends 400 if the username is empty", async () => {
         const password = "123456";
-        const response =await axios.post(backend_url+"/api/v1/signup",{
-            password,
-            type:"admin"
-        })
-        expect(response.statusCode).toBe(400)
-        const responseupdated =await axios.post(backend_url+"/api/v1/signup",{
+        
+        try {
+            const response = await axios.post(backend_url + "/api/v1/signup", {
+                password,
+                type: "ADMIN"
+            });
+            // Should not reach here
+            expect(true).toBe(false);
+        } catch (error) {
+            expect(error.response.status).toBe(400);
+        }
+
+        try {
+            const username = "prashant" + Math.random();
+            const responseupdated = await axios.post(backend_url + "/api/v1/signup", {
+                username,
+                type: "ADMIN"
+                // Missing password
+            });
+            // Should not reach here
+            expect(true).toBe(false);
+        } catch (error) {
+            expect(error.response.status).toBe(400);
+        }
+    });
+
+    test("signin succeeds if the username and password are correct", async () => {
+        const username = "prashant" + Math.random();
+        const password = "12345678";
+        
+        // First create the user
+        await axios.post(backend_url + "/api/v1/signup", {
             username,
-            type:"admin"
-        })
-        expect(responseupdated.statusCode).toBe(400) 
-    })
-    test("signin succeeds if the username and password are correcr",async()=>{
-        const username = "prashant"+Math.random();
-        const password = "12345678"
-        const response = await axios.post(backend_url+"/api/v1/login",{
+            password,
+            type: "USER"
+        });
+        
+        // Then try to login
+        const response = await axios.post(backend_url + "/api/v1/login", {
             username,
             password
-        })
-        expect(response.statusCode).toBe(200)
-        expect(response.body.token).toBeDefined()
-    })
-    test("signin fail if the username and password are incorrect",async()=>{
-        const username = "prashant"+Math.random();
-        const password = "12345678"
-        const response = await axios.post(backend_url+"/api/v1/signin",{
-            username,
-            password
-        })
-        expect(response.statusCode).toBe(403)
-        expect(response.body.token).not.toBeDefine()
-    })
+        });
+        
+        expect(response.status).toBe(200);
+        expect(response.data.token).toBeDefined(); // Fixed: .data not .body
+    });
+
+    test("signin fails if the username and password are incorrect", async () => {
+        const username = "nonexistent" + Math.random();
+        const password = "wrongpassword";
+        
+        try {
+            const response = await axios.post(backend_url + "/api/v1/login", { // Fixed: /login not /signin
+                username,
+                password
+            });
+            // Should not reach here
+            expect(true).toBe(false);
+        } catch (error) {
+            expect(error.response.status).toBe(401); // Fixed: 401 for unauthorized
+            expect(error.response.data.token).toBeUndefined(); // Fixed: toBeUndefined not toBeDefine
+        }
+    });
 });
 // describe("user metadata update ",()=>{
 //     const token = "";
