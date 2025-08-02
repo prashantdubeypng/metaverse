@@ -24,7 +24,7 @@ router.post('/signup',async (req , res)=>{
             data: {
                 username: parser.data.username,
                 password: hashedPassword,
-                role: parser.data.type==='Admin' ? 'ADMIN' : 'USER',
+                role: parser.data.type==='ADMIN' ? 'ADMIN' : 'USER',
             },
         });
          return res.json({

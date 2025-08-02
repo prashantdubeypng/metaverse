@@ -2,7 +2,7 @@ import z from 'zod';
  export const signupSchema = z.object({
     username: z.string(),
     password: z.string().min(6, 'Password must be at least 6 characters long'),
-    type: z.enum(['User', 'Admin'])
+    type: z.enum(['USER', 'ADMIN'])
     });
     export const loginSchema = z.object({
     username: z.string(),

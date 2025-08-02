@@ -4,10 +4,17 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    "./client": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "npm run generate && tsc && npm run copy-prisma",
+    "generate": "prisma generate",
+    "copy-prisma": "xcopy /E /I /Y src\\generated dist\\generated",
+    "prebuild": "prisma generate"
   },
   "keywords": [],
   "author": "",
