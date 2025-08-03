@@ -11,9 +11,8 @@
     }
   },
   "scripts": {
-    "build": "npm run generate && tsc && npm run copy-prisma",
+    "build": "npm run generate && tsc",
     "generate": "prisma generate",
-    "copy-prisma": "xcopy /E /I /Y src\\generated dist\\generated",
     "prebuild": "prisma generate"
   },
   "keywords": [],

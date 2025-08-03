@@ -15,7 +15,7 @@ router.post('/signup',async (req , res)=>{
     // This is just a placeholder response.
     const parser = signupSchema.safeParse(req.body);
     if (!parser.success) {
-        return res.status(403).send(parser.error);
+        return res.status(400).send(parser.error);
     }
     try{
         const saltRounds = 15;
@@ -24,10 +24,10 @@ router.post('/signup',async (req , res)=>{
             data: {
                 username: parser.data.username,
                 password: hashedPassword,
-                role: parser.data.type==='ADMIN' ? 'ADMIN' : 'USER',
+                role: parser.data.type==='Admin' ? 'Admin' : 'User',
             },
         });
-         return res.json({
+         return res.status(201).json({
             message: 'User created successfully',
             userId: user.id,
             username: user.username,
@@ -37,7 +37,7 @@ router.post('/signup',async (req , res)=>{
         console.error(e);
         if (e && typeof e === 'object' && 'code' in e) {
             if (e.code === 'P2002') {
-                return res.status(400).json({ error: 'Username already exists' });
+                return res.status(409).json({ error: 'Username already exists' });
             }
         }
         // Handle any errors that occur during signup processing
@@ -51,14 +51,14 @@ router.post('/login',async(req,res)=>{
     // This is just a placeholder response.
     const parser = loginSchema.safeParse(req.body);
     if (!parser.success) {
-        return res.status(403).send(parser.error);
+        return res.status(400).send(parser.error);
     }
     try {
         const user = await client.user.findUnique({
             where:{username:parser.data.username}
         });
         if (!user) {
-            return res.status(403).send('User not found');
+            return res.status(401).send('User not found');
         }
         // Compare the provided password with the stored hashed password
         // Assuming you have a bcrypt library installed for password hashing
