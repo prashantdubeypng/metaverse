@@ -10,7 +10,7 @@ describe("auth", () => {
             const response = await axios.post(backend_url + "/api/v1/signup", {
                 username,
                 password,
-                type: "ADMIN" // Fixed: should be "Admin" not "admin"
+                type: "Admin" // Fixed: should be "Admin" not "ADMIN"
             });
             
             // Fixed: Added dot and expect 201 for creation
@@ -21,7 +21,7 @@ describe("auth", () => {
                 const updatedresponse = await axios.post(backend_url + "/api/v1/signup", {
                     username,
                     password,
-                    type: "ADMIN"
+                    type: "Admin"
                 });
                 // This should not execute
                 expect(true).toBe(false);
@@ -41,7 +41,7 @@ describe("auth", () => {
         try {
             const response = await axios.post(backend_url + "/api/v1/signup", {
                 password,
-                type: "ADMIN"
+                type: "Admin"
             });
             // Should not reach here
             expect(true).toBe(false);
@@ -53,7 +53,7 @@ describe("auth", () => {
             const username = "prashant" + Math.random();
             const responseupdated = await axios.post(backend_url + "/api/v1/signup", {
                 username,
-                type: "ADMIN"
+                type: "Admin"
                 // Missing password
             });
             // Should not reach here
@@ -71,7 +71,7 @@ describe("auth", () => {
         await axios.post(backend_url + "/api/v1/signup", {
             username,
             password,
-            type: "USER"
+            type: "User"
         });
         
         // Then try to login
