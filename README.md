@@ -106,6 +106,7 @@ npm run test
 ## 🐳 Docker Deployment
 
 The application is fully containerized for easy and consistent deployments.
+DATABASE_URL="postgresql://postgres:password@localhost:5432/metaverse_db?schema=public"
 
 1.  **Build the Docker image:**
 
