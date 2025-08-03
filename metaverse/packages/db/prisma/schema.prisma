@@ -16,7 +16,7 @@ model User{
   id         String @id @unique @default(cuid())  // Fixed typo
   username   String @unique
   password   String 
-  avatarId   String
+  avatarId   String?
   role       Role
   spaces     Space[]
   avatar     Avatar? @relation(fields:[avatarId], references:[id])
@@ -71,6 +71,6 @@ model Avatar{
   users     User[]
 }
 enum Role{
-  ADMIN
-  USER
+  Admin
+  User
 }
