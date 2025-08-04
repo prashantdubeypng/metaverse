@@ -12,7 +12,6 @@ describe("auth", () => {
                 password,
                 type: "Admin" // Fixed: should be "Admin" not "ADMIN"
             });
-            
             // Fixed: Added dot and expect 201 for creation
             expect(response.status).toBe(201);
             
@@ -101,57 +100,57 @@ describe("auth", () => {
         }
     });
 });
-// describe("user metadata update ",()=>{
-//     const token = "";
-//      const avataridg = ""
-// beforeAll(async()=>{
-// const username = "prashant"+Math.random()
-// const password = "12345678"
-// await axios.post(backend_url+"/api/v1/signup",{
-//     username,
-//     password,
-//     type:"admin"
-// })
+describe("user metadata update ",()=>{
+    const token = "";
+     const avataridg = ""
+beforeAll(async()=>{
+const username = "prashant"+Math.random()
+const password = "12345678"
+await axios.post(backend_url+"/api/v1/signup",{
+    username,
+    password,
+    type:"admin"
+})
 
-// const response = await axios.post(backend_url+"/api/v1.signin",{
-//     username,
-//     password
-// })
-// token = response.body.token
+const response = await axios.post(backend_url+"/api/v1.signin",{
+    username,
+    password
+})
+token = response.body.token
 
-// const avatarid = await axios.post(backend_url+"/api/v1/admin/avatar",{
-//     imageurl:"https//avatar/avtar234gh",
-//     name : "monkey"
-// })
-// avataridg = avatarid.body.avatarId
-// })
-// test(" user can't update metadata",async()=>{
-//     const response = await axios.post(backend_url+"/api/v1/user/metadata",{
-//         avtar:"123456789"
-//     },{
-//         headers:{
-//             "Authorization":token
-//         }
-//     })
-//     expect(response.statusCode).toBe(400)
-// })
-// test(" user can update metadata",async()=>{
-//     const response = await axios.post(backend_url+"/api/v1/user/metadata",{
-//         avtar:avatarid
-//     },{
-//         headers:{
-//             "Authorization":token
-//         }
-//     })
-//     expect(response.statusCode).toBe(200)
-// })
-// test("user dont send token",async()=>{
-//     const response = await axios.post(backend_url+"/api/v1/user/metadata",{
-//         avatar:avataridg
-//     })
-//     expect(response.statusCode).toBe(403)
-// })
-// })
+const avatarid = await axios.post(backend_url+"/api/v1/admin/avatar",{
+    imageurl:"https//avatar/avtar234gh",
+    name : "monkey"
+})
+avataridg = avatarid.body.avatarId
+})
+test(" user can't update metadata",async()=>{
+    const response = await axios.post(backend_url+"/api/v1/user/metadata",{
+        avtar:"123456789"
+    },{
+        headers:{
+            "Authorization":token
+        }
+    })
+    expect(response.statusCode).toBe(400)
+})
+test(" user can update metadata",async()=>{
+    const response = await axios.post(backend_url+"/api/v1/user/metadata",{
+        avtar:avatarid
+    },{
+        headers:{
+            "Authorization":token
+        }
+    })
+    expect(response.statusCode).toBe(200)
+})
+test("user dont send token",async()=>{
+    const response = await axios.post(backend_url+"/api/v1/user/metadata",{
+        avatar:avataridg
+    })
+    expect(response.statusCode).toBe(403)
+})
+})
 // describe("user avatar information",()=>{
 //     let token;
 //     let avataridg;
