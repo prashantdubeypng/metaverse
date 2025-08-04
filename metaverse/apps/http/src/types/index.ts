@@ -11,7 +11,7 @@ import z from 'zod';
     export const updatemetadata=z.object({
       avatarId:z.string(),
     });
-    export const createmap = z.object({
+    export const createSpaceSchema = z.object({
       name: z.string(),
       dimensions:z.string().regex(/^[0-9]{1,4}x[0-9]{1,4}$/),
       mapId:z.string()
@@ -21,6 +21,9 @@ import z from 'zod';
       elementId: z.string(),
       x:z.string(),
       y:z.string(),
+    });
+    export const deleteelementSchema =z.object({
+      id:z.string()
     });
     export const createElement = z.object({
       imageurl: z.string(),
