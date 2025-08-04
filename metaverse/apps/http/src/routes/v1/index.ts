@@ -82,11 +82,33 @@ router.post('/login',async(req,res)=>{
         
     }
 });
-router.get('/elements',(req,res)=>{
-res.send('Elements route is working');
+router.get('/elements',async(req,res)=>{
+     try{
+        const elements = await client.element.findMany()
+        res.json({elements:elements.map(x=>({
+            id: x.id,
+            imageurl: x.imageurl,
+            width: x.width,
+            height: x.height,
+            static: x.static
+        }))});
+    }catch(e){
+        console.error(e);
+        return res.status(500).send('Internal Server Error');
+     }
 });
-router.get('/avatars',(req,res)=>{
-res.send('Avatars route is working');
+router.get('/avatars',async(req,res)=>{
+    try{
+        const avatars = await client.avatar.findMany();
+        return res.json({avatars:avatars.map(x=>({
+            id: x.id,
+            imageurl: x.imageurl,
+            name: x.name
+        }))});
+    }catch(e){
+        console.error(e);
+        return res.status(500).send('Internal Server Error');
+    }
 });
 router.use('/user',userrouter);
 router.use('/space',spaceRouter);
