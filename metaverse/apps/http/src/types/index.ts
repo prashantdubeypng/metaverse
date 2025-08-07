@@ -14,7 +14,7 @@ import z from 'zod';
     export const createSpaceSchema = z.object({
       name: z.string(),
       dimensions:z.string().regex(/^[0-9]{1,4}x[0-9]{1,4}$/),
-      mapId:z.string()
+      mapId:z.string().optional().nullable()
     });
     export const addelement = z.object({
       spaceId: z.string(),
@@ -41,6 +41,7 @@ import z from 'zod';
     export const createMapSchema = z.object({
       thumbnail: z.string(),
       name: z.string(),
+      mapId: z.string().optional().nullable(),
       dimensions: z.string().regex(/^[0-9]{1,4}x[0-9]{1,4}$/),
       defaultelement: z.array(z.object({
          elementId: z.string(),

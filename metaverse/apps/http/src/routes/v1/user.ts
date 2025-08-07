@@ -21,6 +21,15 @@ userrouter.post('/metadata',Usermiddleware, async (req, res) => {
     // The user ID is extracted from the request object by the Usermiddleware
     // and used to update the user's metadata in the database.
     try {
+        // Check if the avatar exists first
+        const avatar = await client.avatar.findUnique({
+            where: { id: parser.data.avatarId }
+        });
+        
+        if (!avatar) {
+            return res.status(400).json({ error: 'Avatar not found' });
+        }
+        
         // Update user metadata with the new avatarId
         await client.user.update({ 
             where: { id: req.userId },
@@ -66,7 +75,13 @@ userrouter.get('/metadata/bulk',Usermiddleware, async (req, res) => {
      * http://localhost:3000/api/v1/user/metadata/bulk?ids=["user-id-1","user-id-2","user-id-3"]
      */
     const UserStringId = (req.query.ids??"[]") as string;
-    const userIds = (UserStringId).slice(1,UserStringId?.length-2).split(',');
+    // Parse the JSON array properly instead of manual string manipulation
+    let userIds: string[];
+    try {
+        userIds = JSON.parse(UserStringId);
+    } catch (error) {
+        return res.status(400).json({ error: 'Invalid ids format. Expected JSON array.' });
+    }
     const metadata = await client.user.findMany({
         where:{
             id:{
@@ -79,7 +94,7 @@ userrouter.get('/metadata/bulk',Usermiddleware, async (req, res) => {
             }
     });
     res.json({
-        avatar:metadata.map(m=>({
+        avatar:metadata.filter(m => m.avatar).map(m=>({
             userId: m.id,
             avatarImageUrl: m.avatar?.imageurl,
         }))

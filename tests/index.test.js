@@ -101,89 +101,130 @@ describe("auth", () => {
     });
 });
 describe("user metadata update ",()=>{
-    const token = "";
-     const avataridg = ""
+    let token = "";
+    let avataridg = ""
 beforeAll(async()=>{
 const username = "prashant"+Math.random()
 const password = "12345678"
 await axios.post(backend_url+"/api/v1/signup",{
     username,
     password,
-    type:"admin"
+    type:"Admin"  // Fixed: Should be "Admin" not "admin"
 })
 
-const response = await axios.post(backend_url+"/api/v1.signin",{
+const response = await axios.post(backend_url+"/api/v1/login",{  // Fixed: /login not /signin
     username,
     password
 })
-token = response.body.token
+token = response.data.token  // Fixed: .data not .body
 
 const avatarid = await axios.post(backend_url+"/api/v1/admin/avatar",{
-    imageurl:"https//avatar/avtar234gh",
+    imageurl:"https://avatar/avatar234gh",  // Fixed: https not https//
     name : "monkey"
+},{
+    headers: {
+        "Authorization": `Bearer ${token}`  // Added: Admin endpoints need auth
+    }
 })
-avataridg = avatarid.body.avatarId
+avataridg = avatarid.data.avatarId  // Fixed: .data not .body
 })
 test(" user can't update metadata",async()=>{
-    const response = await axios.post(backend_url+"/api/v1/user/metadata",{
-        avtar:"123456789"
-    },{
-        headers:{
-            "Authorization":token
-        }
-    })
-    expect(response.statusCode).toBe(400)
+    try {
+        const response = await axios.post(backend_url+"/api/v1/user/metadata",{
+            avatarId:"123456789"  // Fixed: avatarId not avtar
+        },{
+            headers:{
+                "Authorization": `Bearer ${token}`  // Fixed: Added Bearer prefix
+            }
+        })
+        // Should not reach here
+        expect(true).toBe(false);
+    } catch (error) {
+        expect(error.response.status).toBe(400)  // Fixed: .status not .statusCode
+    }
 })
 test(" user can update metadata",async()=>{
     const response = await axios.post(backend_url+"/api/v1/user/metadata",{
-        avtar:avatarid
+        avatarId:avataridg  // Fixed: avatarId not avtar
     },{
         headers:{
-            "Authorization":token
+            "Authorization": `Bearer ${token}`  // Fixed: Added Bearer prefix
         }
     })
-    expect(response.statusCode).toBe(200)
+    expect(response.status).toBe(200)  // Fixed: .status not .statusCode
 })
 test("user dont send token",async()=>{
-    const response = await axios.post(backend_url+"/api/v1/user/metadata",{
-        avatar:avataridg
+    try {
+        const response = await axios.post(backend_url+"/api/v1/user/metadata",{
+            avatarId:avataridg  // Fixed: avatarId not avatar
+        })
+        // Should not reach here
+        expect(true).toBe(false);
+    } catch (error) {
+        expect(error.response.status).toBe(401)  // Fixed: Should be 401 for missing auth,
+    }
+})
+})
+describe("user avatar information",()=>{
+    let token;
+    let avataridg;
+    let userid;
+    let username;  // Added: Missing variable declaration
+    let password;  // Added: Missing variable declaration
+    
+    beforeAll(async()=>{
+        username = "prashant" + Math.random();  // Added: Generate unique username
+        password = "12345678";  // Added: Set password
+        
+        const signupresponse = await axios.post(backend_url+"/api/v1/signup",{
+            username,
+            password,
+            type:"Admin"  // Fixed: Should be "Admin" not "admin"
+        })
+        userid = signupresponse.data.userId;  // Fixed: userId not UserId
+        
+        const response = await axios.post(backend_url+"/api/v1/login",{  // Fixed: /login not /signin
+            username,
+            password
+        })
+        token = response.data.token  // Fixed: .data not .body
+
+        const avatarid = await axios.post(backend_url+"/api/v1/admin/avatar",{
+            imageurl:"https://avatar/avatar234gh",  // Fixed: https not https//
+            name : "monkey"
+        },{
+            headers: {
+                "Authorization": `Bearer ${token}`  // Added: Admin endpoints need auth
+            }
+        })
+        avataridg = avatarid.data.avatarId  // Fixed: .data not .body
     })
-    expect(response.statusCode).toBe(403)
+    test("get back the avatar information from the server of the user",async()=>{
+        // First update user metadata with the avatar
+        await axios.post(backend_url+"/api/v1/user/metadata",{
+            avatarId: avataridg
+        },{
+            headers:{
+                "Authorization": `Bearer ${token}`
+            }
+        });
+        
+        // Then get the bulk metadata - correct URL format with JSON array
+        const response = await axios.get(backend_url+`/api/v1/user/metadata/bulk?ids=["${userid}"]`,{
+            headers:{
+                "Authorization": `Bearer ${token}`  // Added: Auth required
+            }
+        });
+        
+        // The response should contain avatar data for users who have avatars set
+        expect(response.data.avatar.length).toBe(1);  // Should find 1 user with avatar
+        expect(response.data.avatar[0].userId).toBe(userid);  // Should match our user
+        expect(response.data.avatar[0].avatarImageUrl).toBeDefined();  // Should have avatar URL
+    })
+    test("get the all existing avatar from the server",async()=>{
+        const response = await axios.get(backend_url+"/api/v1/avatars")
+        expect(response.data.avatars.length).not.toBe(0);  // Fixed: .data not missing
+        expect(response.status).toBe(200);  // Fixed: .status not .statusCode
+    }) 
 })
-})
-// describe("user avatar information",()=>{
-//     let token;
-//     let avataridg;
-//     let userid;
-//     beforeAll(async()=>{
-// const signupresponse = await axios.post(backend_url+"/api/v1/signup",{
-//     username,
-//     password,
-//     type:"admin"
-// })
-// userid = signupresponse.data.UserId;
-// const response = await axios.post(backend_url+"/api/v1.signin",{
-//     username,
-//     password
-// })
-// token = response.body.token
-
-// const avatarid = await axios.post(backend_url+"/api/v1/admin/avatar",{
-//     imageurl:"https//avatar/avtar234gh",
-//     name : "monkey"
-// })
-// avataridg = avatarid.body.avatarId
-
-//     })
-//     test("get back the avatar information from the server of the user",async()=>{
-//       const resoponse = await  axios.get(backend_url+`/api/v1/user/metadata/bulk/ids=${userid}`)
-//       expect(resoponse.data.avatars.length).toBe(1)
-//       expect(resoponse.data.avatars[0].userid).toBe(userid);
-//     })
-//     test("get the all existing avatar from the server",async()=>{
-//         const response = await axios.get(backend_url+"/api/v1/avatars")
-//         expect (response.data.avatars.length).not.toBe(0)
-//         expect(response.statusCode).toBe(200)
-//     }) 
-// })
 
