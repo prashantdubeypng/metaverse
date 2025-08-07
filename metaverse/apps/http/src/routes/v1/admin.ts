@@ -67,7 +67,7 @@ adminRouter.post('/avatar',adminmiddleware,async(req,res)=>{
         });
     }
 });
-adminRouter.post('/element/:elementId',adminmiddleware,async(req,res)=>{
+adminRouter.post('/element',adminmiddleware,async(req,res)=>{
     const parser = createElement.safeParse(req.body);
     if (!parser.success) {
         return res.status(400).send(parser.error);

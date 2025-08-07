@@ -13,6 +13,7 @@ router.post('/signup',async (req , res)=>{
     // For example, validate the request body against the signupSchema
     // and create a new user in the database.
     // This is just a placeholder response.
+    console.log('Signup request received:', req.body);
     const parser = signupSchema.safeParse(req.body);
     if (!parser.success) {
         return res.status(400).send(parser.error);
@@ -49,6 +50,7 @@ router.post('/login',async(req,res)=>{
     // Validate the request body against the loginSchema
     // and authenticate the user.
     // This is just a placeholder response.
+    console.log('Login request received:', req.body);
     const parser = loginSchema.safeParse(req.body);
     if (!parser.success) {
         return res.status(400).send(parser.error);
