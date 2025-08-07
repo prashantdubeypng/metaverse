@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String  @id @unique @default(cuid())
+  username String  @unique
+  password String
+  avatarId String?
+  role     Role
+  spaces   Space[]
+  avatar   Avatar? @relation(fields: [avatarId], references: [id])
+}
+
+model Space {
+  id        String          @id @unique @default(cuid())
+  name      String
+  width     Int
+  height    Int?
+  thumbnail String?
+  creatorId String
+  creator   User            @relation(fields: [creatorId], references: [id])
+  elements  SpaceElements[]
+}
+
+model SpaceElements {
+  id        String  @id @unique @default(cuid())
+  elementId String
+  spaceId   String
+  x         Int
+  y         Int
+  element   Element @relation(fields: [elementId], references: [id])
+  space     Space   @relation(fields: [spaceId], references: [id])
+}
+
+model Element {
+  id          String          @id @unique @default(cuid())
+  width       Int
+  height      Int
+  imageurl    String
+  static      Boolean
+  mapelements MapElements[]
+  spaces      SpaceElements[]
+}
+
+model Map {
+  id          String        @id @unique @default(cuid())
+  width       Int
+  height      Int
+  name        String
+  thumbnail   String
+  mapElements MapElements[]
+}
+
+model MapElements {
+  id        String  @id @unique @default(cuid())
+  mapId     String
+  elementId String
+  x         Int?
+  y         Int?
+  element   Element @relation(fields: [elementId], references: [id])
+  map       Map     @relation(fields: [mapId], references: [id])
+}
+
+model Avatar {
+  id       String  @id @unique @default(cuid())
+  imageurl String?
+  name     String?
+  users    User[]
+}
+
+enum Role {
+  Admin
+  User
+}
