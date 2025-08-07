@@ -1,0 +1,1 @@
+export const jwt_password = '123bsdkmcbcanu';
