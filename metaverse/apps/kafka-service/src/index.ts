@@ -6,17 +6,9 @@ import path from 'path';
 const client = new PrismaClient();
 
 // Kafka configuration with error handling and reconnection
-const kafka = new Kafka({
+const kafkaConfig: any = {
     clientId: `metaverse-kafka-${process.env.SERVICE_ID || 'default'}`,
-    brokers: ['kafka-636a702-metaverse-33456.c.aivencloud.com:18243'],
-    ssl: {
-        ca: [fs.readFileSync(('./ca.pem'), "utf-8")]
-    },
-    sasl: {
-        username: 'avnadmin',
-        password: 'AVNS_PfYFQJqeySUp-pH1gPW',
-        mechanism: "plain"
-    },
+    brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
     retry: {
         initialRetryTime: 1000,
         retries: 5,
@@ -25,7 +17,25 @@ const kafka = new Kafka({
     },
     connectionTimeout: 10000,
     requestTimeout: 30000
-});
+};
+
+// Add SSL configuration if provided
+if (process.env.KAFKA_SSL_CA) {
+    kafkaConfig.ssl = {
+        ca: [fs.readFileSync(process.env.KAFKA_SSL_CA, "utf-8")]
+    };
+}
+
+// Add SASL configuration if provided
+if (process.env.KAFKA_USERNAME && process.env.KAFKA_PASSWORD) {
+    kafkaConfig.sasl = {
+        username: process.env.KAFKA_USERNAME,
+        password: process.env.KAFKA_PASSWORD,
+        mechanism: "plain"
+    };
+}
+
+const kafka = new Kafka(kafkaConfig);
 
 let producer: Producer | null = null;
 let consumer: Consumer | null = null;
