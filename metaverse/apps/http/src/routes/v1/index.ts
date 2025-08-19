@@ -6,6 +6,9 @@ import client from '@repo/db';
 import { userrouter } from './user';
 import { spaceRouter } from './space';
 import { adminRouter } from './admin';
+import { chatroomRouter } from './chatroom';
+import { messagesRouter } from './messages';
+import { mapRouter } from './map';
 import { signupSchema,loginSchema} from '../../types';
 import { jwt_password } from '../../config';
 router.post('/signup',async (req , res)=>{
@@ -115,3 +118,6 @@ router.get('/avatars',async(req,res)=>{
 router.use('/user',userrouter);
 router.use('/space',spaceRouter);
 router.use('/admin',adminRouter);
+router.use('/chatroom',chatroomRouter);
+router.use('/messages',messagesRouter);
+router.use('/map',mapRouter);

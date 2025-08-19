@@ -111,12 +111,27 @@ spaceRouter.post('/', Usermiddleware, async (req, res) => {
     }
 });
 
-// Get all user spaces - must come before /:spaceid
+// Get all spaces (admin spaces + user's own spaces) - must come before /:spaceid
 spaceRouter.get('/all',Usermiddleware,async(req,res)=>{
     try{
+        // Get spaces created by admins (public templates) + user's own spaces
         const allspace = await client.space.findMany({
-            where:{
-                creatorId:req.userId!
+            where: {
+                OR: [
+                    // User's own spaces
+                    { creatorId: req.userId! },
+                    // Admin-created spaces (public templates)
+                    { 
+                        creator: {
+                            role: 'Admin'
+                        }
+                    }
+                ]
+            },
+            include: {
+                creator: {
+                    select: { role: true, username: true }
+                }
             }
         });
         res.json({
@@ -125,10 +140,13 @@ spaceRouter.get('/all',Usermiddleware,async(req,res)=>{
                 name:s.name,
                 thumbnail:s.thumbnail,
                 dimensions:`${s.width}x${s.height}`,
+                isTemplate: s.creator.role === 'Admin',
+                createdBy: s.creator.username
             }))
         })
 
     }catch(e){
+        console.error('Error fetching spaces:', e);
         res.status(500).json({
             message:'internal server error'
         })

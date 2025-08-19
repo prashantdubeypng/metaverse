@@ -4,7 +4,10 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "tsx src/test-client.ts",
+    "test:build": "tsc && node dist/test-client.js"
   },
   "keywords": [],
   "author": "",
@@ -16,5 +19,8 @@
     "@types/ws": "^8.18.1",
     "jsonwebtoken": "^9.0.2",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0"
   }
 }

@@ -49,3 +49,47 @@ import z from 'zod';
          y: z.string(),
       })),
     });
+    export const createchatroomschema = z.object({
+      name:z.string(),
+      description:z.string().max(500).optional(),
+      isPrivate:z.boolean().default(false),
+      roomid:z.string()
+    })
+    // used to validate the chatroomgetall route from this route all the chatrom ,
+    //present in the spaceid
+    export const chatroomgetall = z.object({
+      SpaceId:z.string()
+    })
+
+    // Join request schemas
+    export const joinRequestSchema = z.object({
+      chatroomId: z.string(),
+      message: z.string().max(500).optional()
+    });
+
+    export const processJoinRequestSchema = z.object({
+      requestId: z.string(),
+      action: z.enum(['approve', 'reject']),
+      message: z.string().max(500).optional()
+    });
+
+    // Invitation schemas
+    export const createInvitationSchema = z.object({
+      userId: z.string(),
+      chatroomId: z.string(),
+      message: z.string().max(500).optional(),
+      expiresInHours: z.number().min(1).max(168).default(24) // 1 hour to 1 week
+    });
+
+    export const respondToInvitationSchema = z.object({
+      invitationId: z.string(),
+      action: z.enum(['accept', 'decline'])
+    });
+
+    // Member management schemas
+    export const manageMemberSchema = z.object({
+      userId: z.string(),
+      action: z.enum(['promote', 'demote', 'remove']),
+      newRole: z.enum(['ADMIN', 'MEMBER']).optional()
+    });
+    

@@ -8,13 +8,33 @@ datasource db {
 }
 
 model User {
-  id       String  @id @unique @default(cuid())
-  username String  @unique
-  password String
-  avatarId String?
-  role     Role
-  spaces   Space[]
-  avatar   Avatar? @relation(fields: [avatarId], references: [id])
+  id            String           @id @unique @default(cuid())
+  username      String           @unique
+  password      String
+  avatarId      String?
+  role          Role
+  spaces        Space[]
+  avatar        Avatar?          @relation(fields: [avatarId], references: [id])
+  
+  // Space membership relationship
+  spaceMembers  SpaceMember[]    @relation("SpaceMembers")
+  
+  // Chat relationships
+  ownedChatrooms Chatroom[]      @relation("ChatroomOwner")
+  chatroomMembers ChatroomMember[]
+  chatroomJoinRequests ChatroomJoinRequest[] @relation("ChatroomJoinRequests")
+  chatroomJoinResponses ChatroomJoinRequest[] @relation("ChatroomJoinResponses")
+  messages   Message[]
+  messageReactions MessageReaction[]
+  presence   UserPresence?
+  
+  // Join request relationships
+  joinRequests  JoinRequest[]    @relation("UserJoinRequests")
+  processedRequests JoinRequest[] @relation("ProcessedRequests")
+  
+  // Invitation relationships
+  receivedInvitations Invitation[] @relation("ReceivedInvitations")
+  sentInvitations Invitation[]   @relation("SentInvitations")
 }
 
 model Space {
@@ -26,6 +46,42 @@ model Space {
   creatorId String
   creator   User            @relation(fields: [creatorId], references: [id])
   elements  SpaceElements[]
+  
+  // Chat relationship
+  chatrooms Chatroom[]
+  
+  // Space membership relationship
+  members   SpaceMember[]
+}
+
+model SpaceMember {
+  id        String   @id @unique @default(cuid())
+  userId    String
+  spaceId   String
+  role      SpaceMemberRole @default(MEMBER)
+  joinedAt  DateTime @default(now())
+  isActive  Boolean  @default(true)
+  
+  user      User     @relation("SpaceMembers", fields: [userId], references: [id])
+  space     Space    @relation(fields: [spaceId], references: [id])
+  
+  @@unique([userId, spaceId])
+}
+
+model ChatroomJoinRequest {
+  id          String    @id @unique @default(cuid())
+  userId      String
+  chatroomId  String
+  requestedAt DateTime  @default(now())
+  status      RequestStatus @default(PENDING)
+  respondedAt DateTime?
+  respondedBy String?
+  
+  user        User      @relation("ChatroomJoinRequests", fields: [userId], references: [id])
+  chatroom    Chatroom  @relation("ChatroomJoinRequests", fields: [chatroomId], references: [id])
+  responder   User?     @relation("ChatroomJoinResponses", fields: [respondedBy], references: [id])
+  
+  @@unique([userId, chatroomId])
 }
 
 model SpaceElements {
@@ -73,8 +129,185 @@ model Avatar {
   name     String?
   users    User[]
 }
+model Chatroom {
+  id          String            @id @unique @default(cuid())
+  name        String
+  description String?
+  isPrivate   Boolean           @default(false)
+  spaceId     String
+  creatorId   String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  
+  // Relationships
+  space       Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  creator     User              @relation("ChatroomOwner", fields: [creatorId], references: [id])
+  members     ChatroomMember[]
+  messages    Message[]
+  joinRequests JoinRequest[]
+  invitations Invitation[]
+  chatroomJoinRequests ChatroomJoinRequest[] @relation("ChatroomJoinRequests")
+  
+  @@index([spaceId])
+  @@index([creatorId])
+}
+
+// Junction table for many-to-many relationship
+model ChatroomMember {
+  id         String    @id @unique @default(cuid())
+  userId     String
+  chatroomId String
+  role       MemberRole @default(MEMBER)
+  joinedAt   DateTime  @default(now())
+  invitedBy  String?   // Who invited this user (for private chatrooms)
+  isActive   Boolean   @default(true)
+  
+  // Relationships
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatroom   Chatroom  @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  
+  // Ensure one user can only be a member once per chatroom
+  @@unique([userId, chatroomId])
+  @@index([userId])
+  @@index([chatroomId])
+}
+model Message {
+  id         String   @id @unique @default(cuid())
+  content    String
+  userId     String
+  chatroomId String
+  type       String   @default("text") // text, image, file, system
+  status     String   @default("sent") // sent, delivered, read
+  replyToId  String?  // For threaded conversations
+  metadata   Json?    // Additional message metadata
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  sentAt     DateTime @default(now())
+  deliveredAt DateTime?
+  readAt     DateTime?
+  
+  // Relationships
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatroom   Chatroom @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  replyTo    Message? @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies    Message[] @relation("MessageReplies")
+  reactions  MessageReaction[]
+  
+  @@index([chatroomId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+// Message reactions for Discord/Slack-like functionality
+model MessageReaction {
+  id        String   @id @unique @default(cuid())
+  messageId String
+  userId    String
+  emoji     String   // Unicode emoji or custom emoji identifier
+  createdAt DateTime @default(now())
+  
+  // Relationships
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Ensure one reaction per user per emoji per message
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+// User presence tracking
+model UserPresence {
+  id           String   @id @unique @default(cuid())
+  userId       String   @unique
+  status       String   @default("offline") // online, away, busy, invisible, offline
+  customMessage String?
+  lastSeen     DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relationships
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([status])
+  @@index([lastSeen])
+}
+
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum SpaceMemberRole {
+  ADMIN
+  MEMBER
+}
 
 enum Role {
   Admin
   User
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+// Join request model for private chatrooms
+model JoinRequest {
+  id         String        @id @unique @default(cuid())
+  userId     String
+  chatroomId String
+  status     RequestStatus @default(PENDING)
+  message    String?       // Optional message from user requesting to join
+  requestedAt DateTime     @default(now())
+  processedAt DateTime?
+  processedBy String?
+  
+  // Relationships
+  user       User          @relation("UserJoinRequests", fields: [userId], references: [id], onDelete: Cascade)
+  chatroom   Chatroom      @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  processor  User?         @relation("ProcessedRequests", fields: [processedBy], references: [id])
+  
+  // Ensure one pending request per user per chatroom
+  @@unique([userId, chatroomId])
+  @@index([userId])
+  @@index([chatroomId])
+  @@index([status])
+}
+
+// Invitation model for private chatrooms
+model Invitation {
+  id         String      @id @unique @default(cuid())
+  userId     String
+  chatroomId String
+  invitedBy  String
+  status     InviteStatus @default(PENDING)
+  message    String?     // Optional message from inviter
+  createdAt  DateTime    @default(now())
+  expiresAt  DateTime    // Invitations expire after some time
+  respondedAt DateTime?
+  
+  // Relationships
+  user       User        @relation("ReceivedInvitations", fields: [userId], references: [id], onDelete: Cascade)
+  chatroom   Chatroom    @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  inviter    User        @relation("SentInvitations", fields: [invitedBy], references: [id])
+  
+  // Ensure one pending invitation per user per chatroom
+  @@unique([userId, chatroomId])
+  @@index([userId])
+  @@index([chatroomId])
+  @@index([invitedBy])
+  @@index([status])
+  @@index([expiresAt])
 }
