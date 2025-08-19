@@ -54,6 +54,11 @@ start "WebSocket Service" cmd /k "cd apps\ws && pnpm start"
 
 timeout /t 3 /nobreak >nul
 
+echo 📨 Starting Kafka service...
+start "Kafka Service" cmd /k "cd apps\kafka-service && pnpm start"
+
+timeout /t 3 /nobreak >nul
+
 echo 🎨 Building and starting Frontend...
 cd frontend
 call pnpm build
@@ -66,5 +71,6 @@ echo    Frontend: http://localhost:3000
 echo    API: http://localhost:3001/health
 echo    WebSocket: ws://localhost:3002
 echo    Chat: ws://localhost:3003
+echo    Kafka: Internal service (no direct URL)
 
 pause
