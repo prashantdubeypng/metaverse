@@ -30,7 +30,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-const PORT = process.env.HTTP_SERVICE_PORT || 3001;
+const PORT = process.env.HTTP_SERVICE_PORT || 8000;
 
 app.listen(PORT, () => {
   console.log(`HTTP service running on port ${PORT}`);

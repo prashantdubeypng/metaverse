@@ -4,7 +4,7 @@ export interface OutgoingMessage {
 }
 
 export interface IncomingMessage {
-    type: 'join' | 'move' | 'leave';
+    type: 'join' | 'move' | 'leave' | 'chat-join' | 'chat-message' | 'chat-leave';
     payload: any;
 }
 
@@ -20,6 +20,7 @@ export interface MovePayload {
 
 export interface UserPosition {
     userId: string;
+    username: string;
     x: number;
     y: number;
 }
@@ -30,6 +31,20 @@ export interface SpaceJoinedPayload {
         y: number;
     };
     users: UserPosition[];
+}
+
+export interface ChatJoinPayload {
+    chatroomId: string;
+}
+
+export interface ChatMessagePayload {
+    chatroomId: string;
+    content: string;
+    type?: string;
+}
+
+export interface ChatLeavePayload {
+    chatroomId: string;
 }
 
 export type outgoingmessage = OutgoingMessage;

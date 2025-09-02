@@ -15,6 +15,7 @@ adminRouter.post('/map',adminmiddleware,async(req,res)=>{
     try{
         const map = await client.map.create({
             data:{
+                createrId : req.userId,
                 thumbnail: parser.data.thumbnail,
                 name: parser.data.name,
                 width: parseInt(parser.data.dimensions.split('x')[0]),
@@ -81,6 +82,10 @@ adminRouter.post('/element',adminmiddleware,async(req,res)=>{
                 static: parser.data.static,
             }
         })
+        if(!element){
+            console.error('error in creating the elment')
+            return res.json('try again later')
+        }
         res.json({
             message:'element created',
             elementId:element.id
@@ -92,3 +97,18 @@ adminRouter.post('/element',adminmiddleware,async(req,res)=>{
     }
     
 });
+adminRouter.get('/get-all/maps',adminmiddleware,async(req,res)=>{
+    try{
+        const id = req.userId;
+        const data = await client.map.
+findMany({
+    where:{
+        createrId:id
+    }
+})
+return res.json({message:'sucess',data:data})
+    }catch(error){
+        console.error('some thing went wrong', error);
+        return res.json({message:'maps get wrong', error})
+    }
+})

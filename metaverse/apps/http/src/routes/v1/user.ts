@@ -11,19 +11,23 @@ import client from '@repo/db';
  * @param req - Express request object
  * @param res - Express response object
  * @returns JSON response with success message or error
+ * this will update the user avatr
 */
 userrouter.post('/metadata',Usermiddleware, async (req, res) => {
     const parser = updatemetadata.safeParse(req.body);
     if (!parser.success) {
+        console.log('error in the validation')
         return res.status(400).send(parser.error);
     }
     // If the request is valid, proceed with the metadata update
     // The user ID is extracted from the request object by the Usermiddleware
     // and used to update the user's metadata in the database.
     try {
+        const body = req.body;
+        console.log(body)
         // Check if the avatar exists first
         const avatar = await client.avatar.findUnique({
-            where: { id: parser.data.avatarId }
+            where: { id: body.avatarId }
         });
         
         if (!avatar) {
@@ -31,21 +35,21 @@ userrouter.post('/metadata',Usermiddleware, async (req, res) => {
         }
         
         // Update user metadata with the new avatarId
-        await client.user.update({ 
+        const data = await client.user.update({ 
             where: { id: req.userId },
             data: {
-                avatarId: parser.data.avatarId,
+                avatarId: body.avatarId,
             },
         });
+        console.log(data);
         res.json({
-            message: 'User metadata updated successfully',
+            message: 'User metadata updated successfully', data:data
         });
     } catch (error) {
         console.error('Error updating user metadata:', error);
         res.status(500).send('Internal Server Error');
     }
 });
-
 /**
  * Bulk User Metadata Retrieval Route
  * This route handles the retrieval of metadata for multiple users.
@@ -103,3 +107,47 @@ userrouter.get('/metadata/bulk',Usermiddleware, async (req, res) => {
     // console.log('Type of userIds:', typeof userIds);
     // return res.status(400).send('Invalid request: user IDs are required');
 });
+userrouter.get('/profile/get/user',Usermiddleware,async(req,res)=>{
+    try{
+        const data = await client.user.findUnique({
+        where:{
+            id:req.userId
+        }
+    })
+    console.log(data)
+    return res.json({message:'profile-get-fetched',data:data})
+    }catch(error){
+        return res.json({message:'something get wrong',status:500})
+    }
+})
+userrouter.get('/avtars/:id',Usermiddleware,async(req,res)=>{
+    try{
+        const body = req.params.id;
+        const data = await client.avatar.findUnique({
+            where:{
+                id:body
+            }
+        })
+        return res.json({data:data})
+    }catch(error){
+        console.log('something went wrong')
+        return res.json({message:'error'})
+    }
+})
+userrouter.get('/space/maps/refernce',Usermiddleware,async(req,res)=>{
+    try{
+       const data = await client.map.findMany({
+  include: {
+    mapElements: {
+      include: {
+        element: true, // brings full Element data, not just IDs
+      },
+    },
+  },
+});
+        return res.json({message:'data fetched',data:data})
+    }catch(error){
+        console.error('error',error)
+        return res.json({message:'something went wrong' , status:500})
+    }
+})

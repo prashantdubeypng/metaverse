@@ -2,7 +2,8 @@ import z from 'zod';
  export const signupSchema = z.object({
     username: z.string(),
     password: z.string().min(6, 'Password must be at least 6 characters long'),
-    type: z.enum(['User', 'Admin'])
+    type: z.enum(['User', 'Admin']),
+    email:z.string()
     });
     export const loginSchema = z.object({
     username: z.string(),
@@ -50,10 +51,10 @@ import z from 'zod';
       })),
     });
     export const createchatroomschema = z.object({
-      name:z.string(),
-      description:z.string().max(500).optional(),
-      isPrivate:z.boolean().default(false),
-      roomid:z.string()
+      name: z.string().min(1, 'Name is required'),
+      description: z.string().max(500).optional(),
+      passcode: z.string().min(1, 'Passcode is required'),
+      roomid: z.string().min(1, 'Space ID is required')
     })
     // used to validate the chatroomgetall route from this route all the chatrom ,
     //present in the spaceid

@@ -61,6 +61,8 @@ export const Usermiddleware = async(req: Request, res: Response, next: NextFunct
         return res.status(401).send('Token missing');
     }
     try {
+        console.log("Authorization header:", header);
+console.log("Extracted token:", token);
         // verify the token using the jwt_password secret
         const decoded = jwt.verify(token, jwt_password) as JwtUserPayload;
     //check if the user is User or not , if not return error 

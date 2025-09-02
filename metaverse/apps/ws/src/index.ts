@@ -1,8 +1,11 @@
+import 'dotenv/config';
 import { WebSocketServer } from 'ws';
 import { User } from './User';
 import { Roommanager } from './Roommanager';
 import { WS_PORT } from './config';
 import { startHealthServer } from './healthServer';
+import { RedisService } from './RedisService';
+import { KafkaChatService } from './KafkaChatService';
 
 const wss = new WebSocketServer({ 
   port: WS_PORT,
@@ -10,6 +13,38 @@ const wss = new WebSocketServer({
 });
 
 console.log(`WebSocket server starting on port ${WS_PORT}...`);
+
+// Initialize Redis and Kafka services
+async function initializeServices() {
+  console.log('🔄 Initializing Redis and Kafka services...');
+  
+  // Initialize Redis (required)
+  try {
+    const redisService = RedisService.getInstance();
+    await redisService.connect();
+    console.log('✅ Redis service initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize Redis service:', error);
+    console.error('Redis is required for the WebSocket server to function properly');
+    process.exit(1);
+  }
+  
+  // Initialize Kafka (optional for development)
+  try {
+    const kafkaService = KafkaChatService.getInstance();
+    await kafkaService.connect();
+    console.log('✅ Kafka service initialized successfully');
+  } catch (error) {
+    console.error('⚠️ Failed to initialize Kafka service:', error);
+    console.log('🔄 Continuing without Kafka - chat persistence will be disabled');
+    console.log('💡 To enable Kafka, ensure your connection details and certificates are correct');
+  }
+  
+  console.log('✅ Service initialization completed');
+}
+
+// Initialize services before starting server
+initializeServices();
 
 // Start health monitoring server
 startHealthServer();
@@ -102,19 +137,39 @@ process.on('SIGINT', () => {
   gracefulShutdown();
 });
 
-function gracefulShutdown(): void {
+async function gracefulShutdown(): Promise<void> {
   console.log('🛑 Closing WebSocket server...');
   
-  // Close all client connections
-  wss.clients.forEach((ws) => {
-    ws.close(1001, 'Server shutting down');
-  });
-  
-  // Close the server
-  wss.close(() => {
-    console.log('✅ WebSocket server closed');
-    process.exit(0);
-  });
+  try {
+    // Close all client connections
+    wss.clients.forEach((ws) => {
+      ws.close(1001, 'Server shutting down');
+    });
+    
+    // Disconnect services
+    try {
+      const redisService = RedisService.getInstance();
+      await redisService.disconnect();
+    } catch (error) {
+      console.error('❌ Error disconnecting Redis:', error);
+    }
+    
+    try {
+      const kafkaService = KafkaChatService.getInstance();
+      await kafkaService.disconnect();
+    } catch (error) {
+      console.error('❌ Error disconnecting Kafka:', error);
+    }
+    
+    // Close the server
+    wss.close(() => {
+      console.log('✅ WebSocket server closed');
+      process.exit(0);
+    });
+    
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+  }
   
   // Force exit after timeout
   setTimeout(() => {

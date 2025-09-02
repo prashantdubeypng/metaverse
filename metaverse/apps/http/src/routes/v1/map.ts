@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import { Usermiddleware } from '../../middleware/User';
+import { adminmiddleware } from '../../middleware/Admin';
 import client from '@repo/db';
 
 export const mapRouter = Router();
 
 // Apply user middleware to all routes
-mapRouter.use(Usermiddleware);
-
+mapRouter.use(adminmiddleware);
 /**
  * Get all available maps
  */
@@ -113,7 +112,8 @@ mapRouter.post('/create', async (req, res) => {
     try {
         const newMap = await client.map.create({
             data: {
-                name,
+                name:name,
+                createrId:req.userId,
                 width: parseInt(width),
                 height: parseInt(height),
                 thumbnail: thumbnail || ''

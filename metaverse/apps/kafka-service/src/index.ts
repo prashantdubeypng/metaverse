@@ -151,7 +151,7 @@ export async function createconsumer(): Promise<Consumer> {
 
         // Subscribe to multiple topics
         await _consumer.subscribe({ 
-            topics: ['message', 'chat_analytics', 'user_events'],
+            topics: ['chatmessage', 'chat-analytics', 'user-events'],
             fromBeginning: false 
         });
 
@@ -163,28 +163,35 @@ export async function createconsumer(): Promise<Consumer> {
                     // Call heartbeat to avoid session timeout
                     await heartbeat();
 
+                    console.log(`📨 [KAFKA] Received message from topic: ${topic}, partition: ${partition}`);
+                    console.log(`📨 [KAFKA] Raw message value: ${message.value?.toString()}`);
+
                     const messageData = JSON.parse(message.value?.toString() || '{}');
-                    console.log(`Processing message from topic ${topic}, partition ${partition}`);
+                    console.log(`📨 [KAFKA] Parsed message data:`, JSON.stringify(messageData, null, 2));
 
                     // Route message based on topic
                     switch (topic) {
-                        case 'message':
+                        case 'chatmessage':
+                            console.log(`💬 [KAFKA] Processing chat message...`);
                             await handleChatMessage(messageData);
                             break;
-                        case 'chat_analytics':
+                        case 'chat-analytics':
+                            console.log(`📊 [KAFKA] Processing analytics message...`);
                             await handleAnalyticsMessage(messageData);
                             break;
-                        case 'user_events':
+                        case 'user-events':
+                            console.log(`👤 [KAFKA] Processing user event...`);
                             await handleUserEvent(messageData);
                             break;
                         default:
-                            console.warn(`Unknown topic: ${topic}`);
+                            console.warn(`❓ [KAFKA] Unknown topic: ${topic}`);
                     }
 
-                    console.log(`Message processed successfully from topic ${topic}`);
+                    console.log(`✅ [KAFKA] Message processed successfully from topic ${topic}`);
 
                 } catch (error) {
-                    console.error(`Error processing message from topic ${topic}:`, error);
+                    console.error(`❌ [KAFKA] Error processing message from topic ${topic}:`, error);
+                    console.error(`❌ [KAFKA] Raw message: ${message.value?.toString()}`);
                     
                     // Dead letter queue logic could be implemented here
                     await handleProcessingError(topic, message, error);
@@ -218,34 +225,49 @@ export async function createconsumer(): Promise<Consumer> {
 // Handle chat messages
 async function handleChatMessage(messageData: any): Promise<void> {
     try {
+        console.log('📥 [KAFKA] Received chat message:', JSON.stringify(messageData, null, 2));
+        
         // Extract data based on message structure
         const data = messageData.data || messageData;
         
+        // Validate required fields
+        if (!data.messageId || !data.content || !data.userId || !data.chatroomId) {
+            console.error('❌ [KAFKA] Missing required fields in message:', {
+                messageId: !!data.messageId,
+                content: !!data.content,
+                userId: !!data.userId,
+                chatroomId: !!data.chatroomId
+            });
+            return;
+        }
+        
         // Save to database with duplicate prevention
-        const existingMessage = data.messageId ? 
-            await client.message.findUnique({ where: { id: data.messageId } }) : 
-            null;
+        const existingMessage = await client.message.findUnique({ 
+            where: { id: data.messageId } 
+        });
 
         if (!existingMessage) {
-            await client.message.create({
+            const savedMessage = await client.message.create({
                 data: {
                     id: data.messageId,
-                    content: data.content || data.message,
+                    content: data.content,
+                    type: data.type || 'text',
                     userId: data.userId,
-                    chatroomId: data.chatroomId || data.roomId,
+                    chatroomId: data.chatroomId,
                     createdAt: data.timestamp ? new Date(data.timestamp) : new Date()
                 }
             });
-            console.log('Chat message saved to database');
+            console.log('✅ [DATABASE] Chat message saved:', savedMessage.id);
         } else {
-            console.log('Message already exists, skipping');
+            console.log('ℹ️ [DATABASE] Message already exists, skipping:', data.messageId);
         }
 
         // Update analytics
         await updateChatAnalytics(data);
 
     } catch (error) {
-        console.error('Error handling chat message:', error);
+        console.error('❌ [KAFKA] Error handling chat message:', error);
+        console.error('❌ [KAFKA] Message data:', JSON.stringify(messageData, null, 2));
         throw error;
     }
 }
@@ -392,5 +414,28 @@ process.on('SIGTERM', async () => {
     await shutdown();
     process.exit(0);
 });
+
+// Auto-start the consumer when this module is imported
+async function startKafkaService(): Promise<void> {
+    try {
+        console.log('🚀 [KAFKA SERVICE] Starting Kafka consumer service...');
+        
+        // Start the consumer
+        await createconsumer();
+        
+        console.log('✅ [KAFKA SERVICE] Kafka consumer service started successfully');
+        console.log('📡 [KAFKA SERVICE] Listening for messages on topics: chatmessage, chat-analytics, user-events');
+        
+    } catch (error) {
+        console.error('❌ [KAFKA SERVICE] Failed to start Kafka service:', error);
+        
+        // Retry after 10 seconds
+        console.log('🔄 [KAFKA SERVICE] Retrying in 10 seconds...');
+        setTimeout(startKafkaService, 10000);
+    }
+}
+
+// Start the service
+startKafkaService();
 
 export default kafka;

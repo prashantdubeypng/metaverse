@@ -7,11 +7,11 @@ import { userrouter } from './user';
 import { spaceRouter } from './space';
 import { adminRouter } from './admin';
 import { chatroomRouter } from './chatroom';
-import { messagesRouter } from './messages';
+// import { messagesRouter } from './messages';
 import { mapRouter } from './map';
 import { signupSchema,loginSchema} from '../../types';
 import { jwt_password } from '../../config';
-router.post('/signup',async (req , res)=>{
+router.post('/auth/signup',async (req , res)=>{
     // Handle signup logic here
     // For example, validate the request body against the signupSchema
     // and create a new user in the database.
@@ -19,6 +19,7 @@ router.post('/signup',async (req , res)=>{
     console.log('Signup request received:', req.body);
     const parser = signupSchema.safeParse(req.body);
     if (!parser.success) {
+        console.log('vaidation error')
         return res.status(400).send(parser.error);
     }
     try{
@@ -29,6 +30,7 @@ router.post('/signup',async (req , res)=>{
                 username: parser.data.username,
                 password: hashedPassword,
                 role: parser.data.type==='Admin' ? 'Admin' : 'User',
+                email:parser.data.email
             },
         });
          return res.status(201).json({
@@ -48,7 +50,7 @@ router.post('/signup',async (req , res)=>{
         return res.status(500).send('Internal Server Error');
     }
 });
-router.post('/login',async(req,res)=>{
+router.post('/auth/login',async(req,res)=>{
     // Handle login logic here
     // Validate the request body against the loginSchema
     // and authenticate the user.
@@ -62,6 +64,7 @@ router.post('/login',async(req,res)=>{
         const user = await client.user.findUnique({
             where:{username:parser.data.username}
         });
+        console.log(111111111111111111111111111)
         if (!user) {
             return res.status(401).send('User not found');
         }
@@ -77,6 +80,7 @@ router.post('/login',async(req,res)=>{
             username: user.username, 
             role: user.role }, 
             jwt_password);
+            console.log(2222222222222222222222222222222222222222)
         return res.json({
             message: 'Login successful',
             token: token,
@@ -90,6 +94,7 @@ router.post('/login',async(req,res)=>{
 router.get('/elements',async(req,res)=>{
      try{
         const elements = await client.element.findMany()
+        console.log(elements)
         res.json({elements:elements.map(x=>({
             id: x.id,
             imageurl: x.imageurl,
@@ -119,5 +124,5 @@ router.use('/user',userrouter);
 router.use('/space',spaceRouter);
 router.use('/admin',adminRouter);
 router.use('/chatroom',chatroomRouter);
-router.use('/messages',messagesRouter);
+// router.use('/messages',messagesRouter);
 router.use('/map',mapRouter);

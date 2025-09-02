@@ -28,7 +28,6 @@ export interface ChatroomInfo {
     description?: string;
     ownerId: string;
     spaceId: string;
-    isPrivate: boolean;
     createdAt: number;
 }
 
@@ -81,7 +80,7 @@ export class RedisChatService {
             description: chatroom.description || '',
             ownerId: chatroom.ownerId,
             spaceId: chatroom.spaceId,
-            isPrivate: chatroom.isPrivate.toString(),
+            
             createdAt: chatroom.createdAt.toString(),
         });
         
@@ -101,7 +100,6 @@ export class RedisChatService {
             description: data.description || undefined,
             ownerId: data.ownerId,
             spaceId: data.spaceId,
-            isPrivate: data.isPrivate === 'true',
             createdAt: parseInt(data.createdAt),
         };
     }
