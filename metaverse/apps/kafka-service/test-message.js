@@ -15,8 +15,8 @@ console.log('🧪 [TEST] Sending test message to Kafka...');
 console.log('📝 [TEST] Message:', JSON.stringify(testMessage, null, 2));
 
 try {
-    await producermessage(JSON.stringify(testMessage), 'message');
-    console.log('✅ [TEST] Message sent successfully to topic: message');
+    await producermessage(JSON.stringify(testMessage), 'chatmessage');
+    console.log('✅ [TEST] Message sent successfully to topic: chatmessage');
     console.log('⏳ [TEST] Check the consumer logs to see if it gets processed...');
 } catch (error) {
     console.error('❌ [TEST] Failed to send message:', error);

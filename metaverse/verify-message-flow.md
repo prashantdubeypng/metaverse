@@ -1,9 +1,9 @@
 # Message Flow Verification Guide
 
 ## Current Configuration
-- **Kafka Topic**: `message` ✅
-- **WebSocket Service**: Sends to `message` topic ✅  
-- **Kafka Consumer**: Listens to `message` topic ✅
+- **Kafka Topic**: `chatmessage` ✅
+- **WebSocket Service**: Sends to `chatmessage` topic ✅  
+- **Kafka Consumer**: Listens to `chatmessage` topic ✅
 - **Database**: Saves to `Message` table ✅
 
 ## Steps to Verify Messages are Being Saved
@@ -46,11 +46,11 @@ Use your frontend or a WebSocket client to send a chat message:
 
 **Kafka Consumer Logs should show:**
 ```
-📨 [KAFKA] Received message from topic: message, partition: 0
+📨 [KAFKA] Received message from topic: chatmessage, partition: 0
 💬 [KAFKA] Processing chat message...
 📥 [KAFKA] Received chat message: { messageId: "...", content: "...", ... }
 ✅ [DATABASE] Chat message saved: msg_1234567890_abc123
-✅ [KAFKA] Message processed successfully from topic message
+✅ [KAFKA] Message processed successfully from topic chatmessage
 ```
 
 ### 5. Verify in Database
@@ -68,7 +68,7 @@ SELECT * FROM "Message" ORDER BY "createdAt" DESC LIMIT 5;
    - Ensure no connection errors
 
 2. **Check WebSocket Logs**
-   - Look for "📤 [KAFKA] Sent chat message to topic: message"
+   - Look for "📤 [KAFKA] Sent chat message to topic: chatmessage"
    - Ensure no Kafka producer errors
 
 3. **Check Database Connection**

@@ -1,6 +1,12 @@
 import 'dotenv/config';
 import { Kafka, Producer, Consumer } from 'kafkajs';
 import fs from 'fs';
+// New: Import Prisma Client
+import client from '@repo/db';
+
+// New: Initialize Prisma Client. 
+// It's often better to manage this instance in a separate file (e.g., /lib/prisma.ts)
+// and import it, but for simplicity, we'll instantiate it here.
 
 export class KafkaChatService {
     private kafka: Kafka;
@@ -9,7 +15,7 @@ export class KafkaChatService {
     private static instance: KafkaChatService;
 
     private constructor() {
-        // Build Kafka configuration with SSL support
+        // ... (The entire constructor remains the same)
         const kafkaConfig: any = {
             clientId: 'websocket-chat-service',
             brokers: [process.env.KAFKA_BROKER || 'kafka-636a702-metaverse-33456.c.aivencloud.com:18243'],
@@ -23,55 +29,37 @@ export class KafkaChatService {
             requestTimeout: 30000
         };
 
-        // Configure SSL for Aiven Cloud or custom certificates
         const path = require('path');
         const caPemPath = path.join(__dirname, '..', 'ca.pem');
-
-        // Check if we're using Aiven Cloud
         const isAivenCloud = process.env.KAFKA_BROKER?.includes('aivencloud.com');
 
         if (fs.existsSync(caPemPath)) {
-            console.log('🔐 Found ca.pem certificate, configuring Kafka with SSL');
-
+            console.log(' Found ca.pem certificate, configuring Kafka with SSL');
             kafkaConfig.ssl = {
                 rejectUnauthorized: process.env.KAFKA_SSL_REJECT_UNAUTHORIZED !== 'false',
                 ca: [fs.readFileSync(caPemPath, 'utf-8')]
             };
         } else if (process.env.KAFKA_SSL_CA) {
-            console.log('🔐 Using SSL certificates from environment variables');
-
-            kafkaConfig.ssl = {
-                rejectUnauthorized: process.env.KAFKA_SSL_REJECT_UNAUTHORIZED !== 'false',
-                ca: [fs.readFileSync(process.env.KAFKA_SSL_CA, 'utf-8')]
-            };
-        } else if (process.env.KAFKA_SSL_CA) {
-            console.log('🔐 Using SSL certificates from environment variables');
-
+            console.log(' Using SSL certificates from environment variables');
             kafkaConfig.ssl = {
                 rejectUnauthorized: process.env.KAFKA_SSL_REJECT_UNAUTHORIZED !== 'false',
                 ca: [fs.readFileSync(process.env.KAFKA_SSL_CA, 'utf-8')]
             };
         } else if (isAivenCloud) {
-            console.log('☁️ Aiven Cloud detected, enabling SSL without custom certificates');
-
-            kafkaConfig.ssl = {
-                rejectUnauthorized: true
-            };
+            console.log(' Aiven Cloud detected, enabling SSL without custom certificates');
+            kafkaConfig.ssl = { rejectUnauthorized: true };
         } else {
             console.log('ℹ️ No SSL certificates found, using plain Kafka connection');
         }
 
-        // Add client certificate if provided (for any SSL connection)
         if (kafkaConfig.ssl && process.env.KAFKA_SSL_CERT && process.env.KAFKA_SSL_KEY) {
             kafkaConfig.ssl.cert = fs.readFileSync(process.env.KAFKA_SSL_CERT, 'utf-8');
             kafkaConfig.ssl.key = fs.readFileSync(process.env.KAFKA_SSL_KEY, 'utf-8');
-            console.log('🔑 Added client certificate and key');
+            console.log(' Added client certificate and key');
         }
 
-        // Add SASL authentication if credentials are provided
         if (process.env.KAFKA_USERNAME && process.env.KAFKA_PASSWORD) {
-            console.log('🔑 Configuring Kafka with SASL authentication');
-
+            console.log('Configuring Kafka with SASL authentication');
             kafkaConfig.sasl = {
                 mechanism: process.env.KAFKA_SASL_MECHANISM || 'plain',
                 username: process.env.KAFKA_USERNAME,
@@ -79,7 +67,7 @@ export class KafkaChatService {
             };
         }
 
-        console.log('⚙️ Kafka configuration:', {
+        console.log(' Kafka configuration:', {
             clientId: kafkaConfig.clientId,
             brokers: kafkaConfig.brokers,
             ssl: !!kafkaConfig.ssl,
@@ -97,51 +85,50 @@ export class KafkaChatService {
     }
 
     public async connect(): Promise<void> {
+        // ... (This method remains the same)
         try {
-            // Create and connect producer
             this.producer = this.kafka.producer({
                 maxInFlightRequests: 1,
                 idempotent: true,
                 transactionTimeout: 30000,
                 allowAutoTopicCreation: true
             });
-
             await this.producer.connect();
-            console.log('✅ Kafka Producer connected for chat service');
+            console.log(' Kafka Producer connected for chat service');
 
-            // Create and connect consumer
             this.consumer = this.kafka.consumer({
                 groupId: 'websocket-chat-group',
                 sessionTimeout: 30000,
                 heartbeatInterval: 3000
             });
-
             await this.consumer.connect();
-            console.log('✅ Kafka Consumer connected for chat service');
+            console.log(' Kafka Consumer connected for chat service');
 
         } catch (error) {
-            console.error('❌ Failed to connect to Kafka:', error);
+            console.error(' Failed to connect to Kafka:', error);
             throw error;
         }
     }
 
     public async disconnect(): Promise<void> {
+        // ... (This method remains the same)
         try {
             if (this.consumer) {
                 await this.consumer.disconnect();
                 console.log('🔌 Kafka Consumer disconnected');
             }
-
             if (this.producer) {
                 await this.producer.disconnect();
                 console.log('🔌 Kafka Producer disconnected');
             }
         } catch (error) {
-            console.error('❌ Error disconnecting from Kafka:', error);
+            console.error(' Error disconnecting from Kafka:', error);
         }
     }
 
-    // Send chat message to Kafka for persistence
+    // ---
+    // Modified: This method now saves to the database first
+    // ---
     public async sendChatMessage(messageData: {
         messageId: string;
         content: string;
@@ -151,9 +138,36 @@ export class KafkaChatService {
         type?: string;
         timestamp?: number;
     }): Promise<void> {
+        // 1. Save message to the database
+        try {
+            console.log(` [DB] Attempting to save message ${messageData.messageId} to chatroom ${messageData.chatroomId}`);
+
+            await client.message.create({
+                data: {
+                    id: messageData.messageId, // Use the pre-generated ID
+                    content: messageData.content,
+                    userId: messageData.userId,
+                    chatroomId: messageData.chatroomId,
+                    type: messageData.type || 'text',
+                    status: 'sent', // Default status
+                    createdAt: new Date(messageData.timestamp || Date.now()),
+                    sentAt: new Date(messageData.timestamp || Date.now())
+                }
+            });
+
+            console.log(`[DB] Successfully saved message ${messageData.messageId}`);
+
+        } catch (error) {
+            console.error('Failed to save chat message to database:', error);
+            // If the database write fails, we should not proceed to send it to Kafka
+            // to avoid inconsistent state (message appears in real-time but is not saved).
+            throw new Error('Database write failed for chat message.');
+        }
+
+        // 2. Send message to Kafka for real-time distribution and other consumers
         try {
             if (!this.producer) {
-                console.warn('⚠️ Kafka producer not connected - skipping message persistence');
+                console.warn('Kafka producer not connected - skipping message broadcast');
                 return;
             }
 
@@ -171,7 +185,7 @@ export class KafkaChatService {
             await this.producer.send({
                 topic: 'chatmessage',
                 messages: [{
-                    key: messageData.chatroomId, // Partition by chatroom for ordering
+                    key: messageData.chatroomId,
                     value: JSON.stringify(message),
                     timestamp: message.timestamp.toString(),
                     headers: {
@@ -182,15 +196,17 @@ export class KafkaChatService {
                 }]
             });
 
-            console.log(`📤 [KAFKA] Sent chat message to topic: chatmessage, chatroom: ${messageData.chatroomId}`);
+            console.log(`[KAFKA] Sent chat message to topic: chatmessage, chatroom: ${messageData.chatroomId}`);
 
         } catch (error) {
-            console.error('❌ Failed to send chat message to Kafka:', error);
+            console.error(' Failed to send chat message to Kafka:', error);
+            // Note: At this point, the message is in the DB but failed to broadcast.
+            // A more advanced system might have a retry mechanism or a cleanup job.
             throw error;
         }
     }
 
-    // Send user event to Kafka (join/leave chatroom)
+    // ... (The rest of the methods: sendUserEvent, sendAnalytics, etc. remain the same)
     public async sendUserEvent(eventData: {
         eventType: 'join' | 'leave';
         userId: string;
@@ -200,7 +216,7 @@ export class KafkaChatService {
     }): Promise<void> {
         try {
             if (!this.producer) {
-                console.warn('⚠️ Kafka producer not connected - skipping user event');
+                console.warn('Kafka producer not connected - skipping user event');
                 return;
             }
 
@@ -224,15 +240,14 @@ export class KafkaChatService {
                 }]
             });
 
-            console.log(`📤 [KAFKA] Sent user event: ${eventData.eventType}, user: ${eventData.username}, chatroom: ${eventData.chatroomId}`);
+            console.log(`[KAFKA] Sent user event: ${eventData.eventType}, user: ${eventData.username}, chatroom: ${eventData.chatroomId}`);
 
         } catch (error) {
-            console.error('❌ Failed to send user event to Kafka:', error);
+            console.error('Failed to send user event to Kafka:', error);
             throw error;
         }
     }
 
-    // Send analytics data to Kafka
     public async sendAnalytics(analyticsData: {
         type: 'message_sent' | 'user_joined' | 'user_left' | 'chatroom_activity';
         chatroomId: string;
@@ -242,7 +257,7 @@ export class KafkaChatService {
     }): Promise<void> {
         try {
             if (!this.producer) {
-                console.warn('⚠️ Kafka producer not connected - skipping analytics');
+                console.warn('Kafka producer not connected - skipping analytics');
                 return;
             }
 
@@ -265,11 +280,10 @@ export class KafkaChatService {
                 }]
             });
 
-            console.log(`📊 [KAFKA] Sent analytics: ${analyticsData.type}, chatroom: ${analyticsData.chatroomId}`);
+            console.log(`[KAFKA] Sent analytics: ${analyticsData.type}, chatroom: ${analyticsData.chatroomId}`);
 
         } catch (error) {
-            console.error('❌ Failed to send analytics to Kafka:', error);
-            // Don't throw error for analytics - it's not critical
+            console.error(' Failed to send analytics to Kafka:', error);
         }
     }
 
@@ -282,7 +296,7 @@ export class KafkaChatService {
     }>): Promise<void> {
         try {
             if (!this.producer) {
-                console.warn('⚠️ Kafka producer not connected - skipping batch messages');
+                console.warn(' Kafka producer not connected - skipping batch messages');
                 return;
             }
 
@@ -308,10 +322,10 @@ export class KafkaChatService {
                 )
             );
 
-            console.log(`📤 [KAFKA BATCH] Sent ${messages.length} messages across ${Object.keys(topicBatches).length} topics`);
+            console.log(` [KAFKA BATCH] Sent ${messages.length} messages across ${Object.keys(topicBatches).length} topics`);
 
         } catch (error) {
-            console.error('❌ Failed to send batch messages to Kafka:', error);
+            console.error(' Failed to send batch messages to Kafka:', error);
             throw error;
         }
     }
