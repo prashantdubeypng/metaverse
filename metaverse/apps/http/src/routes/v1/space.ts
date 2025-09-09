@@ -39,6 +39,11 @@ spaceRouter.post('/', Usermiddleware, async (req, res) => {
                     creatorId: req.userId as string,
                 }
             });
+            // Type guard to ensure userId exists
+            if (!req.userId) {
+                return res.status(401).send('User not authenticated');
+            }
+            
             await client.spaceMember.create({
                 data: {
                     userId: req.userId,
@@ -88,6 +93,11 @@ spaceRouter.post('/', Usermiddleware, async (req, res) => {
                         creatorId: req.userId as string,
                     }
                 });
+                // Type guard to ensure userId exists
+                if (!req.userId) {
+                    throw new Error('User not authenticated');
+                }
+                
                 await client.spaceMember.create({
                     data: {
                         userId: req.userId,
@@ -333,6 +343,11 @@ spaceRouter.post('/room/join-room/:id', Usermiddleware, async (req, res) => {
             });
         }
 
+        // Type guard to ensure userId exists
+        if (!req.userId) {
+            return res.status(401).send('User not authenticated');
+        }
+        
         // Create new space membership
         await client.spaceMember.create({
             data: {

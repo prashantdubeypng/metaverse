@@ -251,6 +251,7 @@ async function createAdminUser() {
   const adminUser = {
     id: 'admin-user',
     username: 'admin',
+    email: 'admin@metaverse.com', // Added required email field
     password: 'admin123', // In production, this should be hashed
     role: 'Admin' as const,
     avatarId: 'avatar-business-male'

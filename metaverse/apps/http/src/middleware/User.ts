@@ -62,10 +62,15 @@ export const Usermiddleware = async(req: Request, res: Response, next: NextFunct
     }
     try {
         console.log("Authorization header:", header);
-console.log("Extracted token:", token);
+        console.log("Extracted token:", token);
         // verify the token using the jwt_password secret
         const decoded = jwt.verify(token, jwt_password) as JwtUserPayload;
-    //check if the user is User or not , if not return error 
+        
+        // Ensure userId exists in the decoded token
+        if (!decoded.userId) {
+            return res.status(401).send('Invalid token: missing userId');
+        }
+        
         req.userId = decoded.userId; // Attach user ID to request object
         next(); // Proceed to the next middleware or route handler
     } catch (error) {
