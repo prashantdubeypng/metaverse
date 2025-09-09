@@ -4,7 +4,7 @@ export interface OutgoingMessage {
 }
 
 export interface IncomingMessage {
-    type: 'join' | 'move' | 'leave' | 'chat-join' | 'chat-message' | 'chat-leave';
+    type: 'join' | 'move' | 'leave' | 'chat-join' | 'chat-message' | 'chat-leave' | 'video-call-signaling' | 'video-call-end';
     payload: any;
 }
 
