@@ -6,6 +6,7 @@ import { WS_PORT } from './config';
 import { startHealthServer } from './healthServer';
 import { RedisService } from './RedisService';
 import { KafkaChatService } from './KafkaChatService';
+import { VideoCallManager } from './VideoCallManager';
 
 const wss = new WebSocketServer({ 
   port: WS_PORT,
@@ -101,6 +102,9 @@ setInterval(() => {
     // Cleanup disconnected users
     Roommanager.getInstance().cleanupDisconnectedUsers();
     
+    // Cleanup video calls
+    VideoCallManager.getInstance().cleanup();
+    
     // Ping all connected users for heartbeat
     wss.clients.forEach((ws) => {
       if (ws.readyState === ws.OPEN) {
@@ -116,10 +120,19 @@ setInterval(() => {
 setInterval(() => {
   try {
     const stats = Roommanager.getInstance().getStats();
+    const videoStats = VideoCallManager.getInstance().getStats();
+    
     console.log(`📊 Server Stats: ${stats.totalUsers} users across ${stats.totalSpaces} spaces`);
+    console.log(`🎥 Video Call Stats: ${videoStats.activeCalls} active calls, ${videoStats.totalUsers} users in calls`);
     
     if (stats.spacesWithUsers.length > 0) {
       console.log(`🏢 Active Spaces:`, stats.spacesWithUsers);
+    }
+    
+    if (videoStats.callSessions.length > 0) {
+      console.log(`🎥 Active Video Calls:`, videoStats.callSessions.map(call => 
+        `${call.callId}: ${call.participants.join(' <-> ')} (${Math.round(call.duration / 1000)}s)`
+      ));
     }
   } catch (error) {
     console.error('❌ Error getting stats:', error);

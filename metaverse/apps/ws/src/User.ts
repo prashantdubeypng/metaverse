@@ -6,6 +6,7 @@ import { jwt_password } from './config';
 import client from '@repo/db';
 import { RedisService } from './RedisService';
 import { KafkaChatService } from './KafkaChatService';
+import { VideoCallManager } from './VideoCallManager';
 
 function getRandomIdForUser(length = 15): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$%&*';
@@ -27,6 +28,7 @@ export class User {
     private activeChatrooms: Set<string> = new Set();
     private redisService: RedisService;
     private kafkaService: KafkaChatService;
+    private videoCallManager: VideoCallManager;
 
     constructor(private ws: WebSocket) {
         this.id = getRandomIdForUser();
@@ -34,6 +36,7 @@ export class User {
         this.y = 0;
         this.redisService = RedisService.getInstance();
         this.kafkaService = KafkaChatService.getInstance();
+        this.videoCallManager = VideoCallManager.getInstance();
     }
 
     public initHandlers(): void {
@@ -93,6 +96,14 @@ export class User {
             case 'chat-leave':
                 console.log(`💬 [CHAT LEAVE] Processing chat leave for ${this.username || this.id}`);
                 await this.handleChatLeave(parseData.payload);
+                break;
+            case 'video-call-signaling':
+                console.log(`🎥 [VIDEO SIGNALING] Processing WebRTC signaling from ${this.username || this.id}`);
+                this.handleVideoSignaling(parseData.payload);
+                break;
+            case 'video-call-end':
+                console.log(`🎥 [VIDEO END] Processing video call end from ${this.username || this.id}`);
+                this.handleVideoCallEnd(parseData.payload);
                 break;
             default:
                 console.log(`❓ [UNKNOWN MESSAGE] Invalid message type: ${parseData.type} from ${this.username || this.id}`);
@@ -265,6 +276,9 @@ export class User {
             }, this, this.spaceId);
 
             console.log(`🎯 [MOVE SUCCESS] User ${this.username} (${this.userId}) moved to (${moveX}, ${moveY})`);
+            
+            // Check for proximity-based video calls after movement
+            this.videoCallManager.handleUserMovement(this);
         } else {
             // Reject invalid movement
             console.log(`❌ [MOVE REJECTED] Invalid movement for ${this.username}: displacement X=${xDisplacement}, Y=${yDisplacement}`);
@@ -337,6 +351,28 @@ export class User {
 
     public isConnected(): boolean {
         return this.isAlive && this.ws.readyState === WebSocket.OPEN;
+    }
+
+    // Video call methods
+    private handleVideoSignaling(payload: any): void {
+        if (!this.userId) {
+            this.send({
+                type: 'error',
+                payload: { message: 'User not authenticated' }
+            });
+            return;
+        }
+
+        this.videoCallManager.handleSignaling(this, payload);
+    }
+
+    private handleVideoCallEnd(payload: { callId?: string }): void {
+        if (!this.userId) return;
+
+        const userCall = this.videoCallManager.getUserCall(this.userId);
+        if (userCall) {
+            this.videoCallManager.endCall(userCall.callId, 'user_ended');
+        }
     }
 
     // Chat-related methods
@@ -594,6 +630,11 @@ export class User {
 
         } catch (error) {
             console.error('❌ Error cleaning up chat subscriptions:', error);
+        }
+
+        // Clean up video calls
+        if (this.userId) {
+            this.videoCallManager.handleUserDisconnect(this.userId);
         }
 
         // Original destroy logic
