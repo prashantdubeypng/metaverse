@@ -110,6 +110,11 @@ mapRouter.post('/create', async (req, res) => {
     }
 
     try {
+        // Type guard to ensure userId exists
+        if (!req.userId) {
+            return res.status(401).send('User not authenticated');
+        }
+        
         const newMap = await client.map.create({
             data: {
                 name:name,

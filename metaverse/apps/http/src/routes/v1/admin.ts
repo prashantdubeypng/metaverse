@@ -13,6 +13,11 @@ adminRouter.post('/map',adminmiddleware,async(req,res)=>{
     }
     // Here you would typically save the map to a database or perform some action with it
     try{
+        // Type guard to ensure userId exists (should be guaranteed by middleware)
+        if (!req.userId) {
+            return res.status(401).send('User not authenticated');
+        }
+        
         const map = await client.map.create({
             data:{
                 createrId : req.userId,
