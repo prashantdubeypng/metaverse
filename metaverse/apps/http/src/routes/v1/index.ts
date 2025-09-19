@@ -33,11 +33,24 @@ router.post('/auth/signup',async (req , res)=>{
                 email:parser.data.email
             },
         });
-         return res.status(201).json({
-            message: 'User created successfully',
+        
+        // Generate a JWT token for the new user
+        const token = jwt.sign({ 
             userId: user.id,
-            username: user.username,
-            role: user.role
+            username: user.username, 
+            role: user.role }, 
+            jwt_password);
+            
+         return res.status(201).json({
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email || '',
+                role: user.role,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            },
+            token: token
         });
     }catch(e){
         console.error(e);
@@ -82,8 +95,15 @@ router.post('/auth/login',async(req,res)=>{
             jwt_password);
             console.log(2222222222222222222222222222222222222222)
         return res.json({
-            message: 'Login successful',
-            token: token,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email || '',
+                role: user.role,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            },
+            token: token
         });
     } catch (error) {
         console.error(error);
@@ -91,6 +111,41 @@ router.post('/auth/login',async(req,res)=>{
         
     }
 });
+
+// Add profile endpoint
+router.get('/auth/profile', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Authorization token required' });
+        }
+
+        const token = authHeader.substring(7);
+        const decoded = jwt.verify(token, jwt_password) as any;
+        
+        const user = await client.user.findUnique({
+            where: { id: decoded.userId }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        return res.json({
+            id: user.id,
+            username: user.username,
+            email: user.email || '',
+            role: user.role,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Profile error:', error);
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+});
+
 router.get('/elements',async(req,res)=>{
      try{
         const elements = await client.element.findMany()

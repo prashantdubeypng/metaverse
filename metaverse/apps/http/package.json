@@ -19,6 +19,7 @@
     "zod": "^4.0.14"
   },
   "devDependencies": {
+    "tsx": "^4.0.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.17",
     "@types/jsonwebtoken": "^9.0.10",

@@ -192,6 +192,9 @@ export class VideoCallManager {
         const fromUserId = fromUser.getUserId();
         if (!fromUserId) return;
 
+        console.log(`🎥 [SIGNALING] Received signaling from ${fromUser.getUsername()} (${fromUserId})`);
+        console.log(`🎥 [SIGNALING] Payload:`, payload);
+
         const callId = this.userCalls.get(fromUserId);
         if (!callId) {
             console.log(`🎥 [SIGNALING] User ${fromUser.getUsername()} not in any call`);
@@ -199,27 +202,41 @@ export class VideoCallManager {
         }
 
         const callSession = this.activeCalls.get(callId);
-        if (!callSession) return;
+        if (!callSession) {
+            console.log(`🎥 [SIGNALING] Call session not found for callId: ${callId}`);
+            return;
+        }
 
         // Find the other participant
         const otherUserId = callSession.participants.find(id => id !== fromUserId);
-        if (!otherUserId) return;
+        if (!otherUserId) {
+            console.log(`🎥 [SIGNALING] Other participant not found in call session`);
+            return;
+        }
+
+        console.log(`🎥 [SIGNALING] Call participants:`, callSession.participants);
+        console.log(`🎥 [SIGNALING] From: ${fromUserId}, To: ${otherUserId}`);
 
         // Find the other user and send signaling data
         const spaceUsers = Roommanager.getInstance().getSpaceUsers(callSession.spaceId);
         const otherUser = spaceUsers.find(user => user.getUserId() === otherUserId);
         
         if (otherUser) {
-            otherUser.send({
+            const signalingMessage = {
                 type: 'video-call-signaling',
                 payload: {
                     callId,
                     fromUserId,
                     signalingData: payload
                 }
-            });
+            };
             
-            console.log(`🎥 [SIGNALING] Forwarded signaling from ${fromUser.getUsername()} to ${otherUser.getUsername()}`);
+            console.log(`🎥 [SIGNALING] Forwarding to ${otherUser.getUsername()} (${otherUserId}):`, signalingMessage);
+            otherUser.send(signalingMessage);
+            
+            console.log(`🎥 [SIGNALING] Successfully forwarded signaling from ${fromUser.getUsername()} to ${otherUser.getUsername()}`);
+        } else {
+            console.log(`🎥 [SIGNALING] Other user ${otherUserId} not found in space`);
         }
     }
 
