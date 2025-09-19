@@ -4,7 +4,7 @@
   "description": "Comprehensive test suite for metaverse backend",
   "type": "module",
   "scripts": {
-    "test": "jest",
+    "test": "jest --config ./jest.config.cjs",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest --testPathPattern=unit",

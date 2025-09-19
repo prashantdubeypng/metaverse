@@ -1,5 +1,5 @@
-// Jest setup file
-import { config } from 'dotenv';
+// Jest setup file (CommonJS)
+const { config } = require('dotenv');
 
 // Load environment variables for testing
 config({ path: '../metaverse/.env' });

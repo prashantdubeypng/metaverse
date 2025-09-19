@@ -17,15 +17,21 @@ console.log(`WebSocket server starting on port ${WS_PORT}...`);
 
 // Initialize Redis and Kafka services
 async function initializeServices() {
-  console.log('🔄 Initializing Redis and Kafka services...');
+  console.log('Initializing Redis and Kafka services...');
   
-  // Initialize Redis (required)
+  // In test environment, skip external dependencies to allow CI to run
+  if (process.env.NODE_ENV === 'test') {
+    console.log('Test environment detected: skipping Redis/Kafka connections');
+    return;
+  }
+
+  // Initialize Redis (required in non-test environments)
   try {
     const redisService = RedisService.getInstance();
     await redisService.connect();
-    console.log('✅ Redis service initialized successfully');
+    console.log('Redis service initialized successfully');
   } catch (error) {
-    console.error('❌ Failed to initialize Redis service:', error);
+    console.error('Failed to initialize Redis service:', error);
     console.error('Redis is required for the WebSocket server to function properly');
     process.exit(1);
   }
@@ -34,14 +40,14 @@ async function initializeServices() {
   try {
     const kafkaService = KafkaChatService.getInstance();
     await kafkaService.connect();
-    console.log('✅ Kafka service initialized successfully');
+    console.log('Kafka service initialized successfully');
   } catch (error) {
-    console.error('⚠️ Failed to initialize Kafka service:', error);
-    console.log('🔄 Continuing without Kafka - chat persistence will be disabled');
-    console.log('💡 To enable Kafka, ensure your connection details and certificates are correct');
+    console.error(' Failed to initialize Kafka service:', error);
+    console.log(' Continuing without Kafka - chat persistence will be disabled');
+    console.log(' To enable Kafka, ensure your connection details and certificates are correct');
   }
   
-  console.log('✅ Service initialization completed');
+  console.log(' Service initialization completed');
 }
 
 // Initialize services before starting server
@@ -52,12 +58,12 @@ startHealthServer();
 
 // Server event handlers
 wss.on('listening', () => {
-  console.log(`✅ WebSocket server running on port ${WS_PORT}`);
-  console.log(`🌐 Ready to handle metaverse connections`);
+  console.log(`WebSocket server running on port ${WS_PORT}`);
+  console.log(`Ready to handle metaverse connections`);
 });
 
 wss.on('error', (error) => {
-  console.error('❌ WebSocket server error:', error);
+  console.error('WebSocket server error:', error);
 });
 
 // Connection handler
@@ -73,19 +79,19 @@ wss.on('connection', function connection(ws, request) {
     
     console.log(`👤 User ${user.id} connected`);
   } catch (error) {
-    console.error('❌ Error initializing user:', error);
+    console.error('Error initializing user:', error);
     ws.close(1011, 'Server error during initialization');
     return;
   }
   
   // Handle connection errors
   ws.on('error', (error) => {
-    console.error(`❌ WebSocket error for user ${user?.id}:`, error);
+    console.error(`WebSocket error for user ${user?.id}:`, error);
   });
   
   // Handle connection close
   ws.on('close', (code, reason) => {
-    console.log(`🔌 WebSocket connection closed for user ${user?.id}. Code: ${code}, Reason: ${reason.toString()}`);
+    console.log(`WebSocket connection closed for user ${user?.id}. Code: ${code}, Reason: ${reason.toString()}`);
     if (user) {
       user.destroy();
       user = null;
@@ -112,7 +118,7 @@ setInterval(() => {
       }
     });
   } catch (error) {
-    console.error('❌ Error during cleanup:', error);
+    console.error('Error during cleanup:', error);
   }
 }, CLEANUP_INTERVAL);
 
@@ -122,36 +128,36 @@ setInterval(() => {
     const stats = Roommanager.getInstance().getStats();
     const videoStats = VideoCallManager.getInstance().getStats();
     
-    console.log(`📊 Server Stats: ${stats.totalUsers} users across ${stats.totalSpaces} spaces`);
-    console.log(`🎥 Video Call Stats: ${videoStats.activeCalls} active calls, ${videoStats.totalUsers} users in calls`);
+    console.log(` Server Stats: ${stats.totalUsers} users across ${stats.totalSpaces} spaces`);
+    console.log(` Video Call Stats: ${videoStats.activeCalls} active calls, ${videoStats.totalUsers} users in calls`);
     
     if (stats.spacesWithUsers.length > 0) {
-      console.log(`🏢 Active Spaces:`, stats.spacesWithUsers);
+      console.log(`Active Spaces:`, stats.spacesWithUsers);
     }
     
     if (videoStats.callSessions.length > 0) {
-      console.log(`🎥 Active Video Calls:`, videoStats.callSessions.map(call => 
+      console.log(` Active Video Calls:`, videoStats.callSessions.map(call => 
         `${call.callId}: ${call.participants.join(' <-> ')} (${Math.round(call.duration / 1000)}s)`
       ));
     }
   } catch (error) {
-    console.error('❌ Error getting stats:', error);
+    console.error(' Error getting stats:', error);
   }
 }, STATS_INTERVAL);
 
 // Graceful shutdown handling
 process.on('SIGTERM', () => {
-  console.log('📴 Received SIGTERM, shutting down gracefully...');
+  console.log('Received SIGTERM, shutting down gracefully...');
   gracefulShutdown();
 });
 
 process.on('SIGINT', () => {
-  console.log('📴 Received SIGINT, shutting down gracefully...');
+  console.log('Received SIGINT, shutting down gracefully...');
   gracefulShutdown();
 });
 
 async function gracefulShutdown(): Promise<void> {
-  console.log('🛑 Closing WebSocket server...');
+  console.log(' Closing WebSocket server...');
   
   try {
     // Close all client connections
@@ -164,40 +170,40 @@ async function gracefulShutdown(): Promise<void> {
       const redisService = RedisService.getInstance();
       await redisService.disconnect();
     } catch (error) {
-      console.error('❌ Error disconnecting Redis:', error);
+      console.error('Error disconnecting Redis:', error);
     }
     
     try {
       const kafkaService = KafkaChatService.getInstance();
       await kafkaService.disconnect();
     } catch (error) {
-      console.error('❌ Error disconnecting Kafka:', error);
+      console.error('Error disconnecting Kafka:', error);
     }
     
     // Close the server
     wss.close(() => {
-      console.log('✅ WebSocket server closed');
+      console.log(' WebSocket server closed');
       process.exit(0);
     });
     
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
+    console.error(' Error during shutdown:', error);
   }
   
   // Force exit after timeout
   setTimeout(() => {
-    console.log('⏰ Force closing server after timeout');
+    console.log('Force closing server after timeout');
     process.exit(1);
   }, 5000);
 }
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('💥 Uncaught Exception:', error);
+  console.error('Uncaught Exception:', error);
   gracefulShutdown();
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   gracefulShutdown();
 });

@@ -238,6 +238,67 @@ spaceRouter.get('/:spaceid', Usermiddleware, async (req, res) => {
 
 });
 
+/**
+ * Get Space Members Route
+ * This route returns all members of a specific space.
+ * 
+ * @route GET /v1/space/:spaceid/members
+ * @param req - Express request object
+ * @param res - Express response object
+ * @returns JSON response with space members
+ */
+spaceRouter.get('/:spaceid/members', Usermiddleware, async (req, res) => {
+    try {
+        const spaceId = req.params.spaceid;
+
+        // Check if space exists
+        const space = await client.space.findUnique({
+            where: {
+                id: spaceId
+            }
+        });
+
+        if (!space) {
+            return res.status(400).json({
+                message: 'Space not found'
+            });
+        }
+
+        // Get all members of the space
+        const members = await client.spaceMember.findMany({
+            where: {
+                spaceId: spaceId
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true
+                    }
+                }
+            }
+        });
+
+        return res.json({
+            message: 'success',
+            data: members.map(member => ({
+                id: member.id,
+                userId: member.userId,
+                spaceId: member.spaceId,
+                joinedAt: member.joinedAt,
+                user: member.user
+            }))
+        });
+
+    } catch (error) {
+        console.error('Error fetching space members:', error);
+        return res.status(500).json({
+            message: 'Internal server error'
+        });
+    }
+});
+
 spaceRouter.post('/element', Usermiddleware, async (req, res) => {
     console.log('POST /element route hit!');
     const parse = addelement.safeParse(req.body);
@@ -371,4 +432,5 @@ spaceRouter.post('/room/join-room/:id', Usermiddleware, async (req, res) => {
         });
     }
 });
+
 

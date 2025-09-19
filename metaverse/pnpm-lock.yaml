@@ -63,30 +63,11 @@ importers:
       '@types/node':
         specifier: ^20.10.5
         version: 20.19.11
-      typescript:
-        specifier: ^5.8.3
-        version: 5.8.3
-
-  apps/kafka-service:
-    dependencies:
-      '@prisma/client':
-        specifier: ^6.13.0
-        version: 6.13.0(prisma@6.13.0(typescript@5.8.3))(typescript@5.8.3)
-      '@repo/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      kafkajs:
-        specifier: ^2.2.4
-        version: 2.2.4
-    devDependencies:
-      '@types/node':
-        specifier: ^20.10.5
-        version: 20.19.11
       tsx:
-        specifier: ^4.6.2
+        specifier: ^4.0.0
         version: 4.20.4
       typescript:
-        specifier: ^5.3.3
+        specifier: ^5.8.3
         version: 5.8.3
 
   apps/ws:
