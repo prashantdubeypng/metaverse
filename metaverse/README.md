@@ -190,8 +190,8 @@ pnpm dev
 ```
 
 ### 5. Verify Setup
-- **HTTP API**: http://localhost:3000
-- **WebSocket**: ws://localhost:3001
+- **HTTP API**: http://localhost:8000
+- **WebSocket**: http://localhost:3001
 - **Health Check**: http://localhost:3002
 
 ## 📡 API Documentation
@@ -486,7 +486,7 @@ docker-compose logs -f [service-name]
 curl http://localhost:3000/health
 
 # Test WebSocket connection
-wscat -c ws://localhost:3001
+wscat -c http://localhost:3001
 ```
 
 ---

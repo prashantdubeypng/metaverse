@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 
 // Test WebSocket connection with proper authentication
 const JWT_SECRET = 'prashant143tanu'; // Same as in .env
-const WS_URL = 'ws://localhost:3001';
+const WS_URL = 'http://localhost:3001';
 
 // Create a test JWT token
 const testToken = jwt.sign(

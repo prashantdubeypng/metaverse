@@ -11,7 +11,7 @@ This testing suite covers all backend services:
 - **Database Service** - Data persistence and relationships
 - **Kafka Service** (Port 3004/3104) - Event streaming (optional)
 
-## Test Structure
+## Test Structurep
 
 ```
 tests/

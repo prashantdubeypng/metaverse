@@ -4,7 +4,9 @@ export interface OutgoingMessage {
 }
 
 export interface IncomingMessage {
-    type: 'join' | 'move' | 'leave' | 'chat-join' | 'chat-message' | 'chat-leave' | 'video-call-signaling' | 'video-call-end';
+    type: 'join' | 'move' | 'leave' | 'chat-join' | 'chat-message' | 'chat-leave' | 'video-call-signaling' | 'video-call-end' | 
+          'proximity-video-call-signal' | 'proximity-position-update' | 'proximity-video-call-ended' | 'proximity-heartbeat' | 
+          'authenticate' | 'heartbeat' | 'heartbeat-response';
     payload: any;
 }
 
