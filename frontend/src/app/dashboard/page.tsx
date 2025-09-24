@@ -136,8 +136,8 @@ export default function DashboardPage() {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-  const responseData = await response.json();
-  setSpaces(Array.isArray(responseData.data) ? responseData.data : []);
+      const responseData = await response.json();
+      setSpaces(Array.isArray(responseData.data) ? responseData.data : []);
     } catch (err) {
       console.error('Error fetching spaces:', err);
       setError('Failed to load spaces');
@@ -317,7 +317,7 @@ export default function DashboardPage() {
                 >
                   {/* 3D Background Effect */}
                   <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                  
+
                   {/* Floating Particles */}
                   <div className="absolute inset-0 overflow-hidden">
                     {[...Array(3)].map((_, i) => (
@@ -416,7 +416,7 @@ export default function DashboardPage() {
                               ))}
                             </div>
                           </div>
-                          
+
                           {/* 3D Floating Elements */}
                           <div className="absolute inset-0">
                             {/* Floating Cubes */}
@@ -432,7 +432,7 @@ export default function DashboardPage() {
                                 }}
                               />
                             ))}
-                            
+
                             {/* 3D Spheres */}
                             {[...Array(4)].map((_, i) => (
                               <div
@@ -530,7 +530,7 @@ export default function DashboardPage() {
                               </svg>
                               <span>Enter Space</span>
                             </button>
-                            
+
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();

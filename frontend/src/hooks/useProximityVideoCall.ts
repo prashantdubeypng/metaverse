@@ -55,34 +55,61 @@ export function useProximityVideoCall() {
       connectionState: p.connectionState,
     }));
 
-    setState(prev => ({
-      ...prev,
-      isCallActive: callState.isActive,
-      participants: participantInfo,
-      localStream: callState.localStream,
-      isMuted: callState.isMuted,
-      isCameraOff: callState.isCameraOff,
-      isScreenSharing: callState.isScreenSharing,
-    }));
+    setState(prev => {
+      // Only update if something actually changed
+      const hasChanged = 
+        prev.isCallActive !== callState.isActive ||
+        prev.participants.length !== participantInfo.length ||
+        prev.localStream !== callState.localStream ||
+        prev.isMuted !== callState.isMuted ||
+        prev.isCameraOff !== callState.isCameraOff ||
+        prev.isScreenSharing !== callState.isScreenSharing ||
+        !prev.participants.every((prevP, index) => {
+          const newP = participantInfo[index];
+          return newP && prevP.userId === newP.userId && 
+                 prevP.isAudioEnabled === newP.isAudioEnabled &&
+                 prevP.isVideoEnabled === newP.isVideoEnabled &&
+                 prevP.connectionState === newP.connectionState;
+        });
+
+      if (!hasChanged) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        isCallActive: callState.isActive,
+        participants: participantInfo,
+        localStream: callState.localStream,
+        isMuted: callState.isMuted,
+        isCameraOff: callState.isCameraOff,
+        isScreenSharing: callState.isScreenSharing,
+      };
+    });
   }, []);
+
+  const isInitializedRef = useRef(false);
 
   /**
    * Initialize proximity video call manager
    */
   const initialize = useCallback(async (userId: string) => {
-    if (state.isInitialized) return; // Guard against duplicate init calls
+    if (isInitializedRef.current) return; // Guard against duplicate init calls
+    
     try {
+      isInitializedRef.current = true;
       // Inject WebSocket service (idempotent; internally resets listeners each time)
       proximityVideoCallManager.setWebSocketService(websocketService);
       await proximityVideoCallManager.initialize(userId);
       setState(prev => ({ ...prev, isInitialized: true, error: null }));
     } catch (error) {
+      isInitializedRef.current = false;
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Failed to initialize video call',
       }));
     }
-  }, [state.isInitialized]);
+  }, []);
 
   /**
    * Update user position

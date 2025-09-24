@@ -94,7 +94,18 @@ class ProximityVideoCallManager extends EventEmitter {
    * Update user position and check for proximity changes
    */
   updatePosition(x: number, y: number, z: number = 0): void {
+    const oldPosition = { ...this.state.localPosition };
     this.state.localPosition = { x, y, z };
+    
+    console.log('📍 [DEBUG] Position updated in video service:', {
+      oldPosition,
+      newPosition: this.state.localPosition,
+      gridPosition: {
+        x: Math.round(x / 20),
+        y: Math.round(y / 20)
+      },
+      currentUserId: this.currentUserId
+    });
     
     // Send position update through WebSocket
     if (this.websocketService) {
@@ -114,29 +125,56 @@ class ProximityVideoCallManager extends EventEmitter {
    */
   handleNearbyUsersUpdate(nearbyUsers: User[]): void {
     const GRID_SIZE = 20; // Must match space page grid size
+    const PROXIMITY_DISTANCE = 2; // Must match space page proximity distance
+    
+    // Use the same Manhattan distance calculation as the space page
     const usersInRange = nearbyUsers.filter(user => {
-      const distance = this.calculateDistance(this.state.localPosition, { x: user.x, y: user.y, z: 0 });
-      return distance <= this.state.proximityRange;
+      const currentGridX = Math.round(this.state.localPosition.x / GRID_SIZE);
+      const currentGridY = Math.round(this.state.localPosition.y / GRID_SIZE);
+      const userGridX = Math.round(user.x / GRID_SIZE);
+      const userGridY = Math.round(user.y / GRID_SIZE);
+      
+      const manhattanDistance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
+      return manhattanDistance <= PROXIMITY_DISTANCE;
     });
 
     // Debug logging for proximity detection
-    if (process.env.NODE_ENV === 'development') {
-      const allDistances = nearbyUsers.map(user => ({
-        username: user.username || `User_${user.id?.slice(0, 8)}`,
-        distancePixels: this.calculateDistance(this.state.localPosition, { x: user.x, y: user.y, z: 0 }).toFixed(1),
-        distanceTiles: (this.calculateDistance(this.state.localPosition, { x: user.x, y: user.y, z: 0 }) / GRID_SIZE).toFixed(1),
-        inRange: usersInRange.some(u => u.id === user.id)
-      }));
-      
-      if (allDistances.length > 0) {
-        console.log('🎥 Proximity detection:', allDistances);
-      }
-    }
+    console.log('🎥 [DEBUG] Proximity detection in video service:', {
+      localPosition: this.state.localPosition,
+      localGridPos: {
+        x: Math.round(this.state.localPosition.x / GRID_SIZE),
+        y: Math.round(this.state.localPosition.y / GRID_SIZE)
+      },
+      nearbyUsers: nearbyUsers.map(user => {
+        const currentGridX = Math.round(this.state.localPosition.x / GRID_SIZE);
+        const currentGridY = Math.round(this.state.localPosition.y / GRID_SIZE);
+        const userGridX = Math.round(user.x / GRID_SIZE);
+        const userGridY = Math.round(user.y / GRID_SIZE);
+        const manhattanDistance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
+        
+        return {
+          username: user.username || `User_${user.id?.slice(0, 8)}`,
+          pixelPos: { x: user.x, y: user.y },
+          gridPos: { x: userGridX, y: userGridY },
+          manhattanDistance,
+          inRange: manhattanDistance <= PROXIMITY_DISTANCE
+        };
+      }),
+      usersInRange: usersInRange.length,
+      isActive: this.state.isActive,
+      currentUserId: this.currentUserId
+    });
 
     // Start calls with new users in range
     for (const user of usersInRange) {
       if (!this.state.participants.has(user.id) && user.id !== this.currentUserId) {
-        console.log(`🚀 Starting proximity video call with ${user.username || user.id} (distance: ${(this.calculateDistance(this.state.localPosition, { x: user.x, y: user.y, z: 0 }) / GRID_SIZE).toFixed(1)} tiles)`);
+        const currentGridX = Math.round(this.state.localPosition.x / GRID_SIZE);
+        const currentGridY = Math.round(this.state.localPosition.y / GRID_SIZE);
+        const userGridX = Math.round(user.x / GRID_SIZE);
+        const userGridY = Math.round(user.y / GRID_SIZE);
+        const manhattanDistance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
+        
+        console.log(`🚀 Starting proximity video call with ${user.username || user.id} (Manhattan distance: ${manhattanDistance} tiles)`);
         this.initiateProximityCall(user);
       }
     }

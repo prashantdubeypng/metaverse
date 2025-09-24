@@ -1,17 +1,10 @@
 "use client";
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import SpaceViewer from '@/components/SpaceViewer';
 import LoadingScreen from '@/components/LoadingScreen';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { getTokenData, clearTokenData } from '@/utils/auth';
-// Video call imports
-import { useVideoCall } from '@/hooks/useVideoCall';
 import { useProximityVideoCall } from '@/hooks/useProximityVideoCall';
-import VideoCallInterface from '@/components/VideoCallInterface';
-import IncomingCallModal from '@/components/IncomingCallModal';
-import NearbyUsersPanel from '@/components/NearbyUsersPanel';
-import ProximityManager from '@/components/ProximityManager';
 import ProximityVideoCallUI from '@/components/ProximityVideoCallUI';
 import websocketService from '@/services/websocket';
 
@@ -53,19 +46,13 @@ interface Chatroom {
   spaceId: string;
   creatorId: string;
   createdAt: string;
-  hasPassword: boolean;
-  memberCount?: number;
-}
-
-interface BackendChatroomResponse {
-  id: string;
-  groupname: string;
-  desc?: string;
-  spaceid: string;
-  creatorid: string;
-  createdat: string;
-  passcode?: string;
-  memberCount?: number;
+  creator: {
+    id: string;
+    username: string;
+  };
+  _count: {
+    members: number;
+  };
 }
 
 interface ChatMessage {
@@ -79,7 +66,6 @@ interface ChatMessage {
   chatroomId: string;
   type: 'text' | 'image' | 'file';
   createdAt: string;
-  timestamp?: Date;
 }
 
 export default function SpacePage() {
@@ -93,27 +79,24 @@ export default function SpacePage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [scale, setScale] = useState(0.5);
-  const [showGrid, setShowGrid] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Not Connected');
+  const [showActiveUsers, setShowActiveUsers] = useState(true);
+  const [nearbyUsers, setNearbyUsers] = useState<User[]>([]);
 
-  // Comprehensive Chat System State
+  // Chat system state
+  const [showChat, setShowChat] = useState(false);
   const [chatrooms, setChatrooms] = useState<Chatroom[]>([]);
-  const [activeChatrooms, setActiveChatrooms] = useState<Set<string>>(new Set());
+  const [activeChatroom, setActiveChatroom] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Map<string, ChatMessage[]>>(new Map());
-  // Removed unused onlineUsers state that was not referenced in UI
-  const [_onlineUsers, _setOnlineUsers] = useState<Map<string, User[]>>(new Map()); // Placeholder state; underscore to suppress unused warning
-  const [selectedChatroom, setSelectedChatroom] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const [showChatWindow, setShowChatWindow] = useState(false);
-  const [showCreateChatroomModal, setShowCreateChatroomModal] = useState(false);
-  const [showJoinChatroomModal, setShowJoinChatroomModal] = useState(false);
-  const [pendingChatroomId, setPendingChatroomId] = useState<string | null>(null);
-  const [chatroomPassword, setChatroomPassword] = useState('');
   const [isLoadingChatrooms, setIsLoadingChatrooms] = useState(false);
-  const [chatError, setChatError] = useState<string>('');
-  
+  const [chatError, setChatError] = useState('');
+  const [showCreateChatroom, setShowCreateChatroom] = useState(false);
+  const [showJoinChatroom, setShowJoinChatroom] = useState(false);
+  const [joinChatroomId, setJoinChatroomId] = useState('');
+  const [joinChatroomPassword, setJoinChatroomPassword] = useState('');
+
   // Create chatroom form state
   const [newChatroomName, setNewChatroomName] = useState('');
   const [newChatroomDescription, setNewChatroomDescription] = useState('');
@@ -122,120 +105,131 @@ export default function SpacePage() {
 
   // Grid system constants
   const GRID_SIZE = 20; // Each grid cell is 20x20 pixels
+  const PROXIMITY_DISTANCE = 2; // 2 tiles distance for video calls
 
-  // Video call integration - only initialize when user data is available
+  // Video call integration
   const shouldEnableVideoCalls = currentUser && currentUser.id && currentUser.username;
-  
-  const videoCallData = useVideoCall({
-    currentUser: shouldEnableVideoCalls ? {
-      id: currentUser.id,
-      username: currentUser.username,
-      x: currentUser.x,
-      y: currentUser.y,
-      isCurrentUser: true
-    } : { id: '', username: '', x: 0, y: 0 },
-    webSocketUrl: 'http://localhost:3001'
-  });
-
-  // Proximity video call integration
   const proximityVideoCall = useProximityVideoCall();
 
   // Initialize proximity video call system
   useEffect(() => {
-    if (shouldEnableVideoCalls && currentUser?.id) {
+    if (shouldEnableVideoCalls && currentUser?.id && !proximityVideoCall.isInitialized) {
+      console.log('🚀 [DEBUG] Initializing proximity video call system:', {
+        shouldEnableVideoCalls,
+        currentUserId: currentUser.id,
+        currentUsername: currentUser.username,
+        isInitialized: proximityVideoCall.isInitialized,
+        isConnected
+      });
+      
+      // Make sure WebSocket service is injected
+      if (isConnected) {
+        console.log('🔌 [DEBUG] Injecting WebSocket service into proximity video call manager');
+        // The hook should handle this, but let's make sure
+      }
+      
       proximityVideoCall.initialize(currentUser.id);
     }
-  }, [shouldEnableVideoCalls, currentUser?.id, proximityVideoCall]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldEnableVideoCalls, currentUser?.id, currentUser?.username, proximityVideoCall.isInitialized, proximityVideoCall.initialize, isConnected]);
 
-  // Extract video call data
-  const {
-    callState,
-    nearbyUsers,
-    incomingCall,
-    localStream,
-    remoteStream,
-    initiateCall,
-    acceptCall,
-    rejectCall,
-    endCall
-  } = shouldEnableVideoCalls ? videoCallData : {
-    callState: 'idle' as const,
-    nearbyUsers: [],
-    incomingCall: null,
-    localStream: null,
-    remoteStream: null,
-    initiateCall: async () => {},
-    acceptCall: async () => {},
-    rejectCall: async () => {},
-    endCall: async () => {}
-  };
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      // Cleanup handled by websocket service
-    };
+  // Calculate nearby users for proximity video calls
+  const calculateNearbyUsers = useCallback((currentPos: { x: number; y: number }, allUsers: User[], currentUserId: string) => {
+    if (!currentPos) return [];
+    
+    const currentGridX = Math.round(currentPos.x / GRID_SIZE);
+    const currentGridY = Math.round(currentPos.y / GRID_SIZE);
+    
+    return allUsers.filter(user => {
+      if (user.id === currentUserId) return false;
+      
+      const userGridX = Math.round(user.x / GRID_SIZE);
+      const userGridY = Math.round(user.y / GRID_SIZE);
+      
+      const distance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
+      return distance <= PROXIMITY_DISTANCE;
+    });
   }, []);
+
+  // Update nearby users when position changes
+  useEffect(() => {
+    if (currentUser) {
+      const nearby = calculateNearbyUsers(currentUser, users, currentUser.id);
+      console.log('🎯 [DEBUG] Proximity calculation:', {
+        currentUser: { id: currentUser.id, username: currentUser.username, x: currentUser.x, y: currentUser.y },
+        allUsers: users.map(u => ({ id: u.id, username: u.username, x: u.x, y: u.y })),
+        nearbyUsers: nearby.map(u => ({ id: u.id, username: u.username, x: u.x, y: u.y })),
+        proximityDistance: PROXIMITY_DISTANCE,
+        gridSize: GRID_SIZE
+      });
+      
+      setNearbyUsers(prev => {
+        // Only update if the nearby users actually changed
+        if (prev.length !== nearby.length || 
+            !prev.every(prevUser => nearby.some(newUser => newUser.id === prevUser.id))) {
+          console.log('🔄 [DEBUG] Nearby users changed:', { 
+            previous: prev.map(u => u.username), 
+            new: nearby.map(u => u.username) 
+          });
+          return nearby;
+        }
+        return prev;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.x, currentUser?.y, currentUser?.id, users, calculateNearbyUsers]);
+
+  // Separate effect for updating proximity video call system
+  useEffect(() => {
+    if (shouldEnableVideoCalls && nearbyUsers.length >= 0) {
+      console.log('🎥 [DEBUG] Updating proximity video call system:', {
+        shouldEnableVideoCalls,
+        nearbyUsersCount: nearbyUsers.length,
+        nearbyUsers: nearbyUsers.map(u => ({ id: u.id, username: u.username, x: u.x, y: u.y })),
+        currentUser: currentUser ? { id: currentUser.id, username: currentUser.username, x: currentUser.x, y: currentUser.y } : null,
+        isInitialized: proximityVideoCall.isInitialized,
+        isCallActive: proximityVideoCall.isCallActive
+      });
+      proximityVideoCall.handleNearbyUsers(nearbyUsers);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearbyUsers, shouldEnableVideoCalls, proximityVideoCall.handleNearbyUsers, currentUser, proximityVideoCall.isInitialized, proximityVideoCall.isCallActive]);
 
   // User movement handler
   const handleUserMove = useCallback((x: number, y: number) => {
-    console.log('🚀 handleUserMove called with:', { x, y, currentUser, space: space ? { width: space.width, height: space.height } : null });
-    
-    if (!currentUser || !space) {
-      console.log('❌ Missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
-      return;
-    }
+    if (!currentUser || !space) return;
 
     // Validate input coordinates
     if (typeof x !== 'number' || typeof y !== 'number' || isNaN(x) || isNaN(y)) {
-      console.error('❌ Invalid coordinates received:', { x, y, typeof_x: typeof x, typeof_y: typeof y });
+      console.error('❌ Invalid coordinates received:', { x, y });
       return;
     }
 
-    // Validate movement bounds (using pixel coordinates)
-    const maxPixelX = space.width - GRID_SIZE; // Leave one grid size padding from edge
+    // Validate movement bounds
+    const maxPixelX = space.width - GRID_SIZE;
     const maxPixelY = space.height - GRID_SIZE;
     
-    const clampedX = Math.max(GRID_SIZE, Math.min(maxPixelX, x)); // Start from GRID_SIZE, not 20
+    const clampedX = Math.max(GRID_SIZE, Math.min(maxPixelX, x));
     const clampedY = Math.max(GRID_SIZE, Math.min(maxPixelY, y));
 
-    console.log('📏 Clamped coordinates:', { 
-      original: { x, y }, 
-      clamped: { x: clampedX, y: clampedY }, 
-      bounds: { maxX: maxPixelX, maxY: maxPixelY }
-    });
-
-    // Send movement to WebSocket service if connected (don't update locally, wait for server confirmation)
+    // Send movement to WebSocket service if connected
     if (isConnected) {
-      // Convert pixel coordinates to grid coordinates for backend
       const gridX = Math.round(clampedX / GRID_SIZE);
       const gridY = Math.round(clampedY / GRID_SIZE);
       
-      websocketService.send('move', { 
-        x: gridX, 
-        y: gridY 
-      });
+      websocketService.send('move', { x: gridX, y: gridY });
       
       // Update proximity video call system
       if (shouldEnableVideoCalls) {
         proximityVideoCall.updatePosition(clampedX, clampedY, 0);
       }
-      
-      console.log(`📍 Sent movement request - Pixel: (${clampedX}, ${clampedY}) → Grid: (${gridX}, ${gridY})`);
     } else {
       // If not connected, update locally only
-      setCurrentUser(prev => prev ? {
-        ...prev,
-        x: clampedX,
-        y: clampedY
-      } : null);
+      setCurrentUser(prev => prev ? { ...prev, x: clampedX, y: clampedY } : null);
       
-      // Update proximity video call system even when offline for local testing
       if (shouldEnableVideoCalls) {
         proximityVideoCall.updatePosition(clampedX, clampedY, 0);
       }
-      
-      console.log(`🔄 Local movement to: ${clampedX}, ${clampedY} (not connected)`);
     }
   }, [currentUser, space, isConnected, shouldEnableVideoCalls, proximityVideoCall]);
 
@@ -244,106 +238,44 @@ export default function SpacePage() {
     const handleKeyPress = (event: KeyboardEvent) => {
       if (!currentUser || !space) return;
 
-      // Debug: Check current user state
-      console.log('🎮 Keyboard input:', { 
-        key: event.code, 
-        currentUser: { x: currentUser.x, y: currentUser.y }, 
-        space: { width: space.width, height: space.height } 
-      });
-
-      const moveDistance = 20; // pixels to move per keypress
+      const moveDistance = 20;
       let newX = currentUser.x;
       let newY = currentUser.y;
 
-      // Ensure current position values are numbers
-      if (typeof newX !== 'number' || typeof newY !== 'number') {
-        console.error('❌ Invalid current position:', { x: newX, y: newY });
-        return;
+      if (typeof newX !== 'number' || typeof newY !== 'number') return;
+
+      switch (event.code) {
+        case 'ArrowUp':
+        case 'KeyW':
+          newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
+          event.preventDefault();
+          break;
+        case 'ArrowDown':
+        case 'KeyS':
+          newY = Math.min(space.height - GRID_SIZE, currentUser.y + moveDistance);
+          event.preventDefault();
+          break;
+        case 'ArrowLeft':
+        case 'KeyA':
+          newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
+          event.preventDefault();
+          break;
+        case 'ArrowRight':
+        case 'KeyD':
+          newX = Math.min(space.width - GRID_SIZE, currentUser.x + moveDistance);
+          event.preventDefault();
+          break;
+        default:
+          return;
       }
 
-      // Validate space dimensions
-      if (!space.width || !space.height || typeof space.width !== 'number' || typeof space.height !== 'number') {
-        console.error('❌ Invalid space dimensions:', { width: space.width, height: space.height });
-        console.log('🔧 Using fallback dimensions: 400x400');
-        // Use fallback dimensions if not provided
-        const fallbackWidth = 400;
-        const fallbackHeight = 400;
-        
-        switch (event.code) {
-          case 'ArrowUp':
-          case 'KeyW':
-            newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
-            console.log('⬆️ Arrow Up (fallback) - oldY:', currentUser.y, 'newY:', newY);
-            event.preventDefault();
-            break;
-          case 'ArrowDown':
-          case 'KeyS':
-            newY = Math.min(fallbackHeight - GRID_SIZE, currentUser.y + moveDistance);
-            console.log('⬇️ Arrow Down (fallback) - oldY:', currentUser.y, 'newY:', newY);
-            event.preventDefault();
-            break;
-          case 'ArrowLeft':
-          case 'KeyA':
-            newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
-            console.log('⬅️ Arrow Left (fallback) - oldX:', currentUser.x, 'newX:', newX);
-            event.preventDefault();
-            break;
-          case 'ArrowRight':
-          case 'KeyD':
-            newX = Math.min(fallbackWidth - GRID_SIZE, currentUser.x + moveDistance);
-            console.log('➡️ Arrow Right (fallback) - oldX:', currentUser.x, 'newX:', newX);
-            event.preventDefault();
-            break;
-          default:
-            return; // Don't handle other keys
-        }
-      } else {
-        switch (event.code) {
-          case 'ArrowUp':
-          case 'KeyW':
-            newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
-            console.log('⬆️ Arrow Up - oldY:', currentUser.y, 'newY:', newY);
-            event.preventDefault();
-            break;
-          case 'ArrowDown':
-          case 'KeyS':
-            newY = Math.min(space.height - GRID_SIZE, currentUser.y + moveDistance);
-            console.log('⬇️ Arrow Down - oldY:', currentUser.y, 'newY:', newY, 'maxY:', space.height - GRID_SIZE);
-            event.preventDefault();
-            break;
-          case 'ArrowLeft':
-          case 'KeyA':
-            newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
-            console.log('⬅️ Arrow Left - oldX:', currentUser.x, 'newX:', newX);
-            event.preventDefault();
-            break;
-          case 'ArrowRight':
-          case 'KeyD':
-            newX = Math.min(space.width - GRID_SIZE, currentUser.x + moveDistance);
-            console.log('➡️ Arrow Right - oldX:', currentUser.x, 'newX:', newX, 'maxX:', space.width - GRID_SIZE);
-            event.preventDefault();
-            break;
-          default:
-            return; // Don't handle other keys
-        }
-      }
-
-      // Only move if position actually changed and values are valid
       if ((newX !== currentUser.x || newY !== currentUser.y) && !isNaN(newX) && !isNaN(newY)) {
-        console.log('🎮 Moving from:', { x: currentUser.x, y: currentUser.y }, 'to:', { x: newX, y: newY });
         handleUserMove(newX, newY);
-      } else {
-        console.log('🚫 Invalid movement or no change:', { newX, newY, currentX: currentUser.x, currentY: currentUser.y });
       }
     };
 
-    // Add event listener
     window.addEventListener('keydown', handleKeyPress);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('keydown', handleKeyPress);
-    };
+    return () => window.removeEventListener('keydown', handleKeyPress);
   }, [currentUser, space, handleUserMove]);
 
   const fetchSpaceData = useCallback(async () => {
@@ -355,7 +287,7 @@ export default function SpacePage() {
         return;
       }
 
-      // First, check if user has access to this space
+      // Check space access
       const membershipResponse = await fetch(`http://localhost:8000/api/v1/space/room/join-room/${spaceId}`, {
         method: 'POST',
         headers: {
@@ -370,7 +302,7 @@ export default function SpacePage() {
         return;
       }
 
-      // Then fetch space data and elements
+      // Fetch space data
       const spaceResponse = await fetch(`http://localhost:8000/api/v1/space/${spaceId}`, {
         method: 'GET',
         headers: {
@@ -384,9 +316,7 @@ export default function SpacePage() {
       }
 
       const spaceData = await spaceResponse.json();
-      console.log('🏗️ Raw space data from backend:', spaceData);
       
-      // Extract space info and elements from the response
       const spaceInfo = {
         id: spaceData.id,
         name: spaceData.name,
@@ -395,11 +325,10 @@ export default function SpacePage() {
         thumbnail: spaceData.thumbnail,
       };
 
-      console.log('🏠 Processed space info:', spaceInfo);
       setSpace(spaceInfo);
       setElements(spaceData.elements || []);
 
-      // Initialize current user at center of space (will be updated by WebSocket spawn)
+      // Initialize current user
       const userTokenData = getTokenData();
       if (userTokenData?.user) {
         const centerX = spaceInfo.width / 2;
@@ -414,8 +343,6 @@ export default function SpacePage() {
         });
       }
 
-      // Users will be populated via WebSocket when connected
-
     } catch (err) {
       console.error('Error fetching space data:', err);
       setError('Failed to load space data');
@@ -424,20 +351,157 @@ export default function SpacePage() {
     }
   }, [spaceId, router]);
 
-  // Load space data when component mounts
   useEffect(() => {
     if (spaceId) {
       fetchSpaceData();
     }
-  }, [spaceId, fetchSpaceData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId]); // fetchSpaceData is intentionally omitted to prevent re-renders  
+const handleConnectToWebSocket = async () => {
+    if (isConnected) return;
+    
+    const tokenData = getTokenData();
+    if (!tokenData?.token || !spaceId) {
+      setError('Missing authentication or space ID');
+      return;
+    }
 
-  // ========================================
-  // COMPREHENSIVE CHAT SYSTEM IMPLEMENTATION
-  // ========================================
+    try {
+      setConnectionStatus('Connecting...');
+      
+      await websocketService.joinSpace(spaceId, tokenData.token);
+      
+      setConnectionStatus('Connected');
+      setIsConnected(true);
+      
+      setupWebSocketEventListeners();
+      
+    } catch (error) {
+      console.error('Failed to connect to WebSocket:', error);
+      setError('Failed to connect to live session');
+      setConnectionStatus('Error');
+    }
+  };
 
-  // Load available chatrooms for current space
+  const setupWebSocketEventListeners = () => {
+    websocketService.on('space-joined', (payload: { spawn?: { x?: number; y?: number }; users?: Array<{ userId: string; username?: string; x: number; y: number }> }) => {
+      const spawnGridX = payload.spawn?.x || 1;
+      const spawnGridY = payload.spawn?.y || 1;
+      const pixelX = spawnGridX * GRID_SIZE;
+      const pixelY = spawnGridY * GRID_SIZE;
+      
+      if (currentUser) {
+        setCurrentUser(prev => prev ? { ...prev, x: pixelX, y: pixelY } : null);
+      }
+      
+      const otherUsers = (payload.users || []).map((user: { userId: string; username?: string; x: number; y: number }) => ({
+        id: user.userId,
+        username: user.username || `User_${user.userId?.slice(0, 8) || 'Unknown'}`,
+        x: user.x * GRID_SIZE,
+        y: user.y * GRID_SIZE
+      }));
+      setUsers(otherUsers);
+      setConnectionStatus('In Space');
+    });
+
+    websocketService.on('user-joined-space', (payload: { userId: string; username?: string; x?: number; y?: number }) => {
+      const newUser = {
+        id: payload.userId,
+        username: payload.username || `User_${payload.userId?.slice(0, 8) || 'Unknown'}`,
+        x: (payload.x || 1) * GRID_SIZE,
+        y: (payload.y || 1) * GRID_SIZE
+      };
+      setUsers(prev => [...prev, newUser]);
+    });
+
+    websocketService.on('user-moved', (payload: { userId: string; x: number; y: number }) => {
+      const movedPixelX = payload.x * GRID_SIZE;
+      const movedPixelY = payload.y * GRID_SIZE;
+      
+      if (currentUser && payload.userId === currentUser.id) {
+        setCurrentUser(prev => {
+          if (!prev || (prev.x === movedPixelX && prev.y === movedPixelY)) {
+            return prev; // No change needed
+          }
+          return { ...prev, x: movedPixelX, y: movedPixelY };
+        });
+      }
+      
+      setUsers(prev => prev.map(user => {
+        if (user.id === payload.userId) {
+          if (user.x === movedPixelX && user.y === movedPixelY) {
+            return user; // No change needed
+          }
+          return { ...user, x: movedPixelX, y: movedPixelY };
+        }
+        return user;
+      }));
+    });
+
+    websocketService.on('user-left', (payload: { userId: string }) => {
+      setUsers(prev => prev.filter(user => user.id !== payload.userId));
+    });
+
+    websocketService.on('move-rejected', (payload: { userId: string; x: number; y: number }) => {
+      if (currentUser && payload.userId === currentUser.id) {
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          x: payload.x * GRID_SIZE,
+          y: payload.y * GRID_SIZE
+        } : null);
+      }
+    });
+
+    websocketService.on('error', (payload: { message?: string }) => {
+      setError(payload.message || 'WebSocket error occurred');
+    });
+
+    // Chat event listeners
+    websocketService.on('chat-message-received', (payload: { 
+      messageId: string; 
+      chatroomId: string; 
+      userId: string; 
+      username: string; 
+      content: string; 
+      timestamp: string;
+      type?: string;
+      createdAt?: string;
+    }) => {
+      const chatroomId = payload.chatroomId;
+      const newMessage: ChatMessage = {
+        id: payload.messageId,
+        content: payload.content,
+        userId: payload.userId,
+        user: { 
+          id: payload.userId, 
+          username: payload.username 
+        },
+        chatroomId: chatroomId,
+        type: (payload.type as 'text' | 'image' | 'file') || 'text',
+        createdAt: payload.createdAt || payload.timestamp
+      };
+      
+      setChatMessages(prev => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(chatroomId) || [];
+        newMap.set(chatroomId, [...existing, newMessage]);
+        return newMap;
+      });
+    });
+
+    websocketService.on('chat-joined', (payload: { chatroomId: string }) => {
+      console.log('✅ Chat joined:', payload);
+    });
+
+    websocketService.on('chat-error', (payload: { message?: string }) => {
+      console.error('❌ Chat error:', payload);
+      setChatError(payload.message || 'Chat error occurred');
+    });
+  };
+
+  // Chat functions
   const loadChatrooms = useCallback(async () => {
-    if (!spaceId) return;
+    if (!spaceId || !isConnected) return;
     
     setIsLoadingChatrooms(true);
     setChatError('');
@@ -458,26 +522,7 @@ export default function SpacePage() {
       const data = await response.json();
       
       if (data.status === 200) {
-        console.log('🔍 Raw backend chatroom data:', data.data);
-        
-        // Map backend response to frontend interface
-        const mappedChatrooms = (data.data || []).map((room: BackendChatroomResponse) => {
-          console.log('🔍 Mapping individual room:', room);
-          return {
-            id: room.id,
-            name: room.groupname,
-            description: room.desc,
-            spaceId: room.spaceid,
-            creatorId: room.creatorid,
-            createdAt: room.createdat,
-            hasPassword: !!room.passcode, // Convert to boolean
-            memberCount: room.memberCount || 0
-          };
-        });
-        
-        console.log('✅ Mapped chatrooms:', mappedChatrooms);
-        setChatrooms(mappedChatrooms);
-        console.log('✅ Loaded chatrooms:', mappedChatrooms);
+        setChatrooms(data.data || []);
       } else {
         setChatError(data.message || 'Failed to load chatrooms');
       }
@@ -487,11 +532,10 @@ export default function SpacePage() {
     } finally {
       setIsLoadingChatrooms(false);
     }
-  }, [spaceId]);
+  }, [spaceId, isConnected]);
 
-  // Create new chatroom
-  const createChatroom = useCallback(async (name: string, description: string, passcode: string) => {
-    if (!spaceId) return null;
+  const createChatroom = useCallback(async () => {
+    if (!spaceId || !newChatroomName.trim() || !newChatroomPassword.trim()) return;
     
     setIsCreatingChatroom(true);
     setChatError('');
@@ -500,7 +544,7 @@ export default function SpacePage() {
       const tokenData = getTokenData();
       if (!tokenData?.token) {
         setChatError('Authentication required');
-        return null;
+        return;
       }
 
       const response = await fetch('http://localhost:8000/api/v1/chatroom/create', {
@@ -510,33 +554,35 @@ export default function SpacePage() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          name: name,
-          description: description,
-          passcode: passcode,
+          name: newChatroomName,
+          description: newChatroomDescription,
+          passcode: newChatroomPassword,
           roomid: spaceId
         })
       });
       
       const data = await response.json();
       
-      if (data.message === 'success') {
-        console.log('✅ Chatroom created:', data.data);
-        await loadChatrooms(); // Refresh list
-        return data.data;
+      if (data.status === 201) {
+        // Reset form
+        setNewChatroomName('');
+        setNewChatroomDescription('');
+        setNewChatroomPassword('');
+        setShowCreateChatroom(false);
+        
+        // Reload chatrooms
+        await loadChatrooms();
       } else {
         setChatError(data.message || 'Failed to create chatroom');
-        return null;
       }
     } catch (error) {
       console.error('❌ Failed to create chatroom:', error);
       setChatError('Failed to create chatroom');
-      return null;
     } finally {
       setIsCreatingChatroom(false);
     }
-  }, [spaceId, loadChatrooms]);
+  }, [spaceId, newChatroomName, newChatroomDescription, newChatroomPassword, loadChatrooms]);
 
-  // Load message history (moved above joinChatroom so it can be safely referenced)
   const loadMessageHistory = useCallback(async (chatroomId: string) => {
     try {
       const tokenData = getTokenData();
@@ -563,22 +609,19 @@ export default function SpacePage() {
           user: msg.user,
           chatroomId: chatroomId,
           type: msg.type || 'text',
-          createdAt: msg.createdAt,
-          timestamp: new Date(msg.createdAt)
+          createdAt: msg.createdAt
         }));
         setChatMessages(prev => {
           const newMap = new Map(prev);
           newMap.set(chatroomId, messages);
           return newMap;
         });
-        console.log('✅ Loaded message history for chatroom:', chatroomId, messages);
       }
     } catch (error) {
       console.error('❌ Failed to load message history:', error);
     }
   }, []);
 
-  // Join chatroom with passcode
   const joinChatroom = useCallback(async (chatroomId: string, passcode: string) => {
     setChatError('');
     
@@ -589,7 +632,6 @@ export default function SpacePage() {
         return false;
       }
 
-      // Join via HTTP API
       const response = await fetch(`http://localhost:8000/api/v1/chatroom/join/${chatroomId}`, {
         method: 'POST',
         headers: {
@@ -601,41 +643,21 @@ export default function SpacePage() {
       
       const data = await response.json();
       
-      // Handle different response statuses
       if (response.status === 409) {
-        // User already joined this chatroom
-        console.log('ℹ️ Already joined chatroom:', chatroomId);
-        
-        // Still proceed with local state updates and WebSocket join
+        // Already joined
         if (isConnected) {
           websocketService.send('chat-join', { chatroomId });
         }
-        
-        // Load message history
         await loadMessageHistory(chatroomId);
-        
-        // Add to active chatrooms
-        setActiveChatrooms(prev => new Set([...prev, chatroomId]));
-        setSelectedChatroom(chatroomId);
-        setShowChatWindow(true);
-        
-        console.log('✅ Rejoined chatroom:', chatroomId);
+        setActiveChatroom(chatroomId);
         return true;
-      } else if (data.status === 200 || data.message === 'sucess') {
-        // Successfully joined for the first time
+      } else if (data.status === 200) {
+        // Successfully joined
         if (isConnected) {
           websocketService.send('chat-join', { chatroomId });
         }
-        
-        // Load message history
         await loadMessageHistory(chatroomId);
-        
-        // Add to active chatrooms
-        setActiveChatrooms(prev => new Set([...prev, chatroomId]));
-        setSelectedChatroom(chatroomId);
-        setShowChatWindow(true);
-        
-        console.log('✅ Joined chatroom:', chatroomId);
+        setActiveChatroom(chatroomId);
         return true;
       } else {
         setChatError(data.message || 'Failed to join chatroom');
@@ -648,829 +670,574 @@ export default function SpacePage() {
     }
   }, [isConnected, loadMessageHistory]);
 
-  // (duplicate loadMessageHistory removed)
-
-  // Send chat message
-  const sendChatMessage = useCallback((chatroomId: string, content: string, type: 'text' | 'image' | 'file' = 'text') => {
-    if (!activeChatrooms.has(chatroomId)) {
-      console.error('❌ Not in chatroom:', chatroomId);
-      setChatError('Not connected to this chatroom');
-      return;
-    }
-    
-    if (!isConnected) {
-      console.error('❌ WebSocket not connected');
-      setChatError('Connection lost');
-      return;
-    }
+  const sendChatMessage = useCallback(() => {
+    if (!activeChatroom || !chatInput.trim() || !isConnected) return;
     
     websocketService.send('chat-message', {
-      chatroomId,
-      content,
-      type
+      chatroomId: activeChatroom,
+      content: chatInput.trim(),
+      type: 'text'
     });
     
-    console.log('📤 Sent chat message:', { chatroomId, content, type });
-  }, [activeChatrooms, isConnected]);
+    setChatInput('');
+  }, [activeChatroom, chatInput, isConnected]);
 
-  // Leave chatroom (currently unused but available for future functionality)
-  const _leaveChatroom = useCallback((chatroomId: string) => {
-    if (isConnected) {
-      websocketService.send('chat-leave', { chatroomId });
-    }
-    
-    setActiveChatrooms(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(chatroomId);
-      return newSet;
-    });
-    
-    setChatMessages(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(chatroomId);
-      return newMap;
-    });
-    
-    _setOnlineUsers((prev: Map<string, User[]>) => {
-      const newMap = new Map(prev);
-      newMap.delete(chatroomId);
-      return newMap;
-    });
-    
-    if (selectedChatroom === chatroomId) {
-      setSelectedChatroom(null);
-    }
-    
-    console.log('👋 Left chatroom:', chatroomId);
-  }, [isConnected, selectedChatroom]);
-
-  // Load chatrooms when space is loaded
+  // Load chatrooms when connected
   useEffect(() => {
-    if (space && isConnected) {
+    if (isConnected && spaceId) {
       loadChatrooms();
     }
-  }, [space, isConnected, loadChatrooms]);
-
-  const handleConnectToWebSocket = async () => {
-    if (isConnected) {
-      console.log('⚠️ Already connected to WebSocket');
-      return;
-    }
-    
-    const tokenData = getTokenData();
-    if (!tokenData?.token || !spaceId) {
-      setError('Missing authentication or space ID');
-      return;
-    }
-
-    try {
-      setConnectionStatus('Connecting...');
-      
-      // Use unified websocket service properly
-      await websocketService.joinSpace(spaceId, tokenData.token);
-      
-      console.log('🔗 WebSocket connected & joined space');
-      setConnectionStatus('Connected');
-      setIsConnected(true);
-      
-      // Set up event listeners via the service (not direct socket manipulation)
-      setupWebSocketEventListeners();
-      
-    } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
-      setError('Failed to connect to live session');
-      setConnectionStatus('Error');
-    }
-  };
-
-  // Separate function to set up all WebSocket event listeners
-  const setupWebSocketEventListeners = () => {
-    // Space events
-    websocketService.on('space-joined', (payload: { spawn?: { x?: number; y?: number }; users?: Array<{ userId: string; username?: string; x: number; y: number }> }) => {
-      console.log('🎮 Successfully joined space at:', payload.spawn);
-      
-      // Update current user position to spawn point
-      const spawnGridX = payload.spawn?.x || 1;
-      const spawnGridY = payload.spawn?.y || 1;
-      const pixelX = spawnGridX * GRID_SIZE;
-      const pixelY = spawnGridY * GRID_SIZE;
-      
-      if (currentUser) {
-        setCurrentUser(prev => prev ? {
-          ...prev,
-          x: pixelX,
-          y: pixelY
-        } : null);
-        console.log('📍 Current user position updated - Grid:', { x: spawnGridX, y: spawnGridY }, 'Pixel:', { x: pixelX, y: pixelY });
-      }
-      
-      // Set other users in the space
-      const otherUsers = (payload.users || []).map((user: { userId: string; username?: string; x: number; y: number }) => ({
-        id: user.userId,
-        username: user.username || `User_${user.userId?.slice(0, 8) || 'Unknown'}`,
-        x: user.x * GRID_SIZE,
-        y: user.y * GRID_SIZE
-      }));
-      setUsers(otherUsers);
-      setConnectionStatus('In Space');
-    });
-
-    websocketService.on('user-joined-space', (payload: { userId: string; username?: string; spawn?: { x?: number; y?: number } }) => {
-      console.log('👤 New user joined:', payload);
-      const newUser = {
-        id: payload.userId,
-        username: payload.username || `User_${payload.userId?.slice(0, 8) || 'Unknown'}`,
-        x: (payload.spawn?.x || 1) * GRID_SIZE,
-        y: (payload.spawn?.y || 1) * GRID_SIZE
-      };
-      setUsers(prev => [...prev, newUser]);
-    });
-
-    websocketService.on('user-moved', (payload: { userId: string; x: number; y: number }) => {
-      console.log('🚶 User moved:', payload);
-      const movedPixelX = payload.x * GRID_SIZE;
-      const movedPixelY = payload.y * GRID_SIZE;
-      
-      if (currentUser && payload.userId === currentUser.id) {
-        setCurrentUser(prev => prev ? {
-          ...prev,
-          x: movedPixelX,
-          y: movedPixelY
-        } : null);
-      }
-      
-      setUsers(prev => prev.map(user => 
-        user.id === payload.userId 
-          ? { ...user, x: movedPixelX, y: movedPixelY }
-          : user
-      ));
-    });
-
-    websocketService.on('user-left', (payload: { userId: string }) => {
-      console.log('👋 User left:', payload);
-      setUsers(prev => prev.filter(user => user.id !== payload.userId));
-    });
-
-    websocketService.on('move-rejected', (payload: { userId: string; x: number; y: number }) => {
-      console.log('❌ Movement rejected:', payload);
-      if (currentUser && payload.userId === currentUser.id) {
-        setCurrentUser(prev => prev ? {
-          ...prev,
-          x: payload.x * GRID_SIZE,
-          y: payload.y * GRID_SIZE
-        } : null);
-      }
-    });
-
-    // Chat events
-    websocketService.on('chat-message-received', (payload: { 
-      messageId: string; 
-      chatroomId: string; 
-      userId: string; 
-      username: string; 
-      content: string; 
-      timestamp: string;
-      type?: string;
-      createdAt?: string;
-    }) => {
-      console.log('💬 Chat message received:', payload);
-      const chatroomId = payload.chatroomId;
-      const newMessage: ChatMessage = {
-        id: payload.messageId,
-        content: payload.content,
-        userId: payload.userId,
-        user: { 
-          id: payload.userId, 
-          username: payload.username 
-        },
-        chatroomId: chatroomId,
-        type: (payload.type as 'text' | 'image' | 'file') || 'text',
-        createdAt: payload.createdAt || payload.timestamp,
-        timestamp: new Date(payload.createdAt || payload.timestamp || Date.now())
-      };
-      
-      setChatMessages(prev => {
-        const newMap = new Map(prev);
-        const existing = newMap.get(chatroomId) || [];
-        newMap.set(chatroomId, [...existing, newMessage]);
-        return newMap;
-      });
-    });
-
-    // Additional chat event handlers...
-    websocketService.on('chat-joined', (payload: { chatroomId: string }) => {
-      console.log('✅ Chat joined:', payload);
-      setActiveChatrooms(prev => new Set([...prev, payload.chatroomId]));
-    });
-
-    websocketService.on('chat-error', (payload: { message?: string }) => {
-      console.error('❌ Chat error:', payload);
-      setChatError(payload.message || 'Chat error occurred');
-    });
-
-    websocketService.on('error', (payload: { message?: string }) => {
-      console.error('❌ WebSocket error:', payload);
-      setError(payload.message || 'WebSocket error');
-    });
-  };
-
-  const handleDisconnectWebSocket = () => {
-    websocketService.disconnect();
-    setIsConnected(false);
-    setConnectionStatus('Disconnected');
-    setUsers([]); // Clear other users when disconnecting
-    setChatMessages(new Map()); // Clear chat messages when disconnecting
-    setShowChatWindow(false); // Hide chat when disconnecting
-    setSelectedChatroom(null); // Clear selected chatroom
-    setActiveChatrooms(new Set()); // Clear active chatrooms
-    _setOnlineUsers(new Map()); // Clear online users
-  };
-
-  // ========================================
-  // SIMPLIFIED CHAT SYSTEM HANDLERS
-  // ========================================
-
-  const handleSendMessage = () => {
-    if (!chatInput.trim() || !isConnected || !selectedChatroom) return;
-    
-    sendChatMessage(selectedChatroom, chatInput.trim());
-    setChatInput('');
-  };
-
-  const handleCreateChatroom = async () => {
-    if (!newChatroomName.trim()) {
-      setChatError('Chatroom name is required');
-      return;
-    }
-    
-    const result = await createChatroom(
-      newChatroomName.trim(),
-      newChatroomDescription.trim(),
-      newChatroomPassword.trim()
-    );
-    
-    if (result) {
-      setNewChatroomName('');
-      setNewChatroomDescription('');
-      setNewChatroomPassword('');
-      setShowCreateChatroomModal(false);
-    }
-  };
-
-  const handleJoinChatroom = async (chatroomId: string, hasPassword: boolean) => {
-    // Check if already in this chatroom
-    if (activeChatrooms.has(chatroomId)) {
-      console.log('ℹ️ Already in chatroom:', chatroomId);
-      setSelectedChatroom(chatroomId);
-      setShowChatWindow(true);
-      return;
-    }
-    
-    if (hasPassword) {
-      setPendingChatroomId(chatroomId);
-      setShowJoinChatroomModal(true);
-    } else {
-      await joinChatroom(chatroomId, '');
-    }
-  };
-
-  const handleJoinWithPassword = async () => {
-    if (!pendingChatroomId) return;
-    
-    // Check if already in this chatroom
-    if (activeChatrooms.has(pendingChatroomId)) {
-      console.log('ℹ️ Already in chatroom:', pendingChatroomId);
-      setSelectedChatroom(pendingChatroomId);
-      setShowChatWindow(true);
-      setPendingChatroomId(null);
-      setChatroomPassword('');
-      setShowJoinChatroomModal(false);
-      return;
-    }
-    
-    const success = await joinChatroom(pendingChatroomId, chatroomPassword);
-    if (success) {
-      setPendingChatroomId(null);
-      setChatroomPassword('');
-      setShowJoinChatroomModal(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  if (isLoading) {
-    return <LoadingScreen message="Loading Space..." />;
+  }, [isConnected, spaceId, loadChatrooms]); 
+ if (isLoading) {
+    return <LoadingScreen message="Loading Space" />;
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
-          <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
-          <p className="text-gray-600 mb-6">{error}</p>
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-          >
-            Back to Dashboard
-          </button>
+      <ProtectedRoute requiredRole="User">
+        <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-red-500 text-xl mb-4">⚠️ Error</div>
+            <p className="text-white mb-4">{error}</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+            >
+              Back to Dashboard
+            </button>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  if (!space) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-600">Space not found</h2>
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-          >
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
+      </ProtectedRoute>
     );
   }
 
   return (
     <ProtectedRoute requiredRole="User">
-      <div className="min-h-screen bg-gray-50 p-6">
-        {/* Header */}
-        <div className="max-w-7xl mx-auto mb-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="text-indigo-600 hover:text-indigo-800 font-medium mb-2 flex items-center"
-              >
-                ← Back to Dashboard
-              </button>
-              <h1 className="text-3xl font-bold text-gray-900">Space: {space.name}</h1>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className={`w-3 h-3 rounded-full ${
-                  isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
-                }`}></div>
-                <span className="text-sm text-gray-600">{connectionStatus}</span>
+      <div className="h-screen bg-gray-900 flex overflow-hidden">
+        {/* Active Users Sidebar */}
+        {showActiveUsers && (
+          <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
+            {/* Sidebar Header */}
+            <div className="p-4 border-b border-gray-700">
+              <div className="flex items-center justify-between">
+                <h2 className="text-white font-semibold">Active Users</h2>
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span className="text-sm text-gray-400">{users.length + (currentUser ? 1 : 0)}</span>
+                </div>
               </div>
-              
-              {/* Chat Button - Only visible when connected */}
-              {isConnected && (
+              <p className="text-sm text-gray-400 mt-1">{space?.name}</p>
+            </div>
+
+            {/* Connection Status */}
+            {!isConnected && (
+              <div className="p-4 bg-yellow-900 border-b border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-yellow-200 text-sm font-medium">Not Connected</p>
+                    <p className="text-yellow-300 text-xs">Join live session to see other users</p>
+                  </div>
+                  <button
+                    onClick={handleConnectToWebSocket}
+                    className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm"
+                  >
+                    Connect
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Users List */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Current User */}
+              {currentUser && (
+                <div className="p-3 border-b border-gray-700 bg-blue-900/20">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                      <span className="text-white font-semibold text-sm">
+                        {currentUser.username.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-white font-medium">{currentUser.username}</p>
+                      <p className="text-blue-400 text-xs">You • Position ({Math.round(currentUser.x/GRID_SIZE)}, {Math.round(currentUser.y/GRID_SIZE)})</p>
+                    </div>
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Other Users */}
+              {users.map((user) => {
+                const isNearby = nearbyUsers.some(nu => nu.id === user.id);
+                return (
+                  <div key={user.id} className={`p-3 border-b border-gray-700 ${isNearby ? 'bg-green-900/20' : ''}`}>
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        isNearby ? 'bg-green-600' : 'bg-gray-600'
+                      }`}>
+                        <span className="text-white font-semibold text-sm">
+                          {user.username.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white font-medium">{user.username}</p>
+                        <div className="flex items-center space-x-2">
+                          <p className="text-gray-400 text-xs">Position ({Math.round(user.x/GRID_SIZE)}, {Math.round(user.y/GRID_SIZE)})</p>
+                          {isNearby && (
+                            <span className="text-green-400 text-xs bg-green-900/50 px-2 py-0.5 rounded">
+                              📹 Nearby
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-500'}`}></div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Empty State */}
+              {users.length === 0 && isConnected && (
+                <div className="p-8 text-center">
+                  <div className="text-gray-500 text-4xl mb-4">👥</div>
+                  <p className="text-gray-400">No other users in this space</p>
+                  <p className="text-gray-500 text-sm mt-2">Invite friends to join!</p>
+                </div>
+              )}
+            </div>
+
+            {/* Sidebar Footer */}
+            <div className="p-4 border-t border-gray-700">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-400">Status: {connectionStatus}</span>
                 <button
-                  onClick={() => {
-                    setShowChatWindow(true);
-                    loadChatrooms();
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                  onClick={() => setShowActiveUsers(false)}
+                  className="text-gray-400 hover:text-white"
+                  title="Hide sidebar"
                 >
-                  <span>💬</span>
-                  <span>Chat</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
                 </button>
-              )}
-              
-              <button
-                onClick={isConnected ? handleDisconnectWebSocket : handleConnectToWebSocket}
-                className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Main Space Area */}
+        <div className="flex-1 relative">
+          {/* Space Header */}
+          <div className="absolute top-0 left-0 right-0 z-20 bg-gray-800/90 backdrop-blur-sm border-b border-gray-700">
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center space-x-4">
+                {!showActiveUsers && (
+                  <button
+                    onClick={() => setShowActiveUsers(true)}
+                    className="text-gray-400 hover:text-white"
+                    title="Show active users"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
+                <div>
+                  <h1 className="text-white font-bold text-xl">{space?.name}</h1>
+                  <p className="text-gray-400 text-sm">
+                    {space?.width} × {space?.height} • {users.length + (currentUser ? 1 : 0)} users online
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                {/* Proximity Indicator */}
+                {nearbyUsers.length > 0 && (
+                  <div className="bg-green-600/20 border border-green-600/50 rounded-lg px-3 py-2">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-green-400 text-sm font-medium">
+                        {nearbyUsers.length} nearby user{nearbyUsers.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Chat Toggle Button */}
+                <button
+                  onClick={() => setShowChat(!showChat)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    showChat
+                      ? 'bg-blue-600/20 text-blue-400 border border-blue-600/50'
+                      : 'bg-gray-700 hover:bg-gray-600 text-white border border-gray-600'
+                  }`}
+                  title="Toggle Chat"
+                >
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <span>Chat</span>
+                    {chatrooms.length > 0 && (
+                      <span className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[1.25rem] text-center">
+                        {chatrooms.length}
+                      </span>
+                    )}
+                  </div>
+                </button>
+
+                {/* Connection Status */}
+                <div className={`px-3 py-2 rounded-lg text-sm font-medium ${
                   isConnected 
-                    ? 'bg-red-600 hover:bg-red-700 text-white' 
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
-              >
-                {isConnected ? 'Disconnect' : 'Join Live Session'}
-              </button>
+                    ? 'bg-green-600/20 text-green-400 border border-green-600/50' 
+                    : 'bg-red-600/20 text-red-400 border border-red-600/50'
+                }`}>
+                  {connectionStatus}
+                </div>
+
+                {/* Exit Button */}
+                <button
+                  onClick={() => router.push('/dashboard')}
+                  className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  Exit Space
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Controls */}
-        <div className="max-w-7xl mx-auto mb-6">
-          <div className="bg-white p-4 rounded-lg shadow flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <label className="text-sm font-medium text-gray-700">Scale:</label>
-              <input
-                type="range"
-                min="0.2"
-                max="1"
-                step="0.1"
-                value={scale}
-                onChange={(e) => setScale(parseFloat(e.target.value))}
-                className="w-32"
-              />
-              <span className="text-sm text-gray-600">{Math.round(scale * 100)}%</span>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="showGrid"
-                checked={showGrid}
-                onChange={(e) => setShowGrid(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="showGrid" className="text-sm font-medium text-gray-700">
-                Show Grid
-              </label>
-            </div>
-
-            <div className="text-sm text-gray-600">
-              Elements: {elements.length} | Users: {users.length + (currentUser ? 1 : 0)} online
-              {shouldEnableVideoCalls && proximityVideoCall.isCallActive && (
-                <span className="ml-2 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
-                  🎥 Active call with {proximityVideoCall.participants.length} user(s)
-                </span>
-              )}
-              {shouldEnableVideoCalls && !proximityVideoCall.isCallActive && (
-                <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
-                  📹 Move within 2 tiles of others to start video calls
-                </span>
-              )}
-            </div>
-
-            <div className="text-sm text-blue-600 font-medium">
-              💡 {isConnected 
-                ? 'Use arrow keys (↑↓←→) or WASD keys to move your avatar. Get within 2 tiles of other users to start automatic video calls!' 
-                : 'Click "Join Live Session" to connect with other users, then use arrow keys or click to move your avatar'
-              }
-            </div>
-          </div>
-        </div>
-
-        {/* Space Viewer */}
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white p-6 rounded-lg shadow">
-            <SpaceViewer
+          {/* Space Canvas */}
+          <div className="absolute inset-0 pt-20">
+            <SpaceCanvas
               space={space}
               elements={elements}
               users={users}
-              currentUser={currentUser || undefined}
+              currentUser={currentUser}
+              nearbyUsers={nearbyUsers}
               onUserMove={handleUserMove}
-              scale={scale}
-              showGrid={showGrid}
-              interactive={true}
-              className="mx-auto"
             />
           </div>
+
+          {/* Movement Instructions */}
+          <div className="absolute bottom-4 left-4 z-20">
+            <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg p-4 text-white">
+              <h3 className="font-semibold mb-2">Movement Controls</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>↑ W - Move Up</div>
+                <div>↓ S - Move Down</div>
+                <div>← A - Move Left</div>
+                <div>→ D - Move Right</div>
+              </div>
+              <p className="text-gray-400 text-xs mt-2">
+                Get within 2 tiles of other users for video calls
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        {/* Proximity Video Call UI - Small window on the right */}
+        {shouldEnableVideoCalls && proximityVideoCall.isCallActive && (
+          <div className="fixed top-24 right-4 z-50">
+            <ProximityVideoCallUI
+              userId={currentUser.id}
+              username={currentUser.username}
+              className="w-80 max-h-96"
+            />
+          </div>
+        )}
+        
+        {/* Debug info for video call */}
+        <div className="fixed top-4 left-4 z-50 bg-black/80 text-white p-2 rounded text-xs">
+          <div>Video Calls Debug:</div>
+          <div>shouldEnable: {shouldEnableVideoCalls ? 'true' : 'false'}</div>
+          <div>isCallActive: {proximityVideoCall.isCallActive ? 'true' : 'false'}</div>
+          <div>isInitialized: {proximityVideoCall.isInitialized ? 'true' : 'false'}</div>
+          <div>nearbyUsers: {nearbyUsers.length}</div>
+          <div>currentUser: {currentUser?.username || 'none'}</div>
+          <div>currentPos: {currentUser ? `(${Math.round(currentUser.x/GRID_SIZE)}, ${Math.round(currentUser.y/GRID_SIZE)})` : 'none'}</div>
         </div>
 
-        {/* Video Call UI Components */}
-        {shouldEnableVideoCalls && (
-          <>
-            {/* Proximity Manager - handles auto-connections based on position */}
-            <ProximityManager
-              userId={currentUser.id}
-              username={currentUser.username}
-              currentPosition={{ x: currentUser.x, y: currentUser.y, z: 0 }}
-              onNearbyUsersChange={(nearbyUsers) => {
-                console.log('🎥 Nearby users updated:', nearbyUsers);
-              }}
-            />
-
-            {/* Proximity Video Call UI */}
-            <ProximityVideoCallUI 
-              userId={currentUser.id}
-              username={currentUser.username}
-            />
-
-            {/* Legacy Video Call Components - keeping for compatibility */}
-            {/* Nearby Users Panel */}
-            {nearbyUsers.length > 0 && (
-              <div className="fixed top-4 right-4 z-40">
-                <NearbyUsersPanel
-                  nearbyUsers={nearbyUsers.map(user => ({
-                    ...user,
-                    isOnline: user.isOnline ?? true
-                  }))}
-                  currentUserPosition={currentUser ? { x: currentUser.x, y: currentUser.y, z: 0 } : { x: 0, y: 0, z: 0 }}
-                  onInitiateCall={(userId: string) => initiateCall(userId)}
-                />
+        {/* Chat Panel */}
+        {showChat && (
+          <div className="fixed bottom-4 right-4 z-40 w-96 h-96 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl flex flex-col">
+            {/* Chat Header */}
+            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+              <h3 className="text-white font-semibold">Space Chat</h3>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowCreateChatroom(true)}
+                  className="text-gray-400 hover:text-white p-1 rounded"
+                  title="Create Chatroom"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setShowJoinChatroom(true)}
+                  className="text-gray-400 hover:text-white p-1 rounded"
+                  title="Join Chatroom"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setShowChat(false)}
+                  className="text-gray-400 hover:text-white p-1 rounded"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-            )}
+            </div>
 
-            {/* Video Call Interface */}
-            {callState === 'active' && (localStream || remoteStream) && (
-              <div className="fixed top-4 left-4 z-40">
-                <VideoCallInterface
-                  callSession={{
-                    id: `active-call-${Date.now()}`,
-                    callerId: currentUser?.id || '',
-                    calleeId: '',
-                    status: 'active',
-                    startTime: new Date(),
-                    type: 'peer-to-peer'
-                  }}
-                  localStream={localStream}
-                  remoteStream={remoteStream}
-                  isMuted={false}
-                  isCameraOn={true}
-                  isScreenSharing={false}
-                  onEndCall={endCall}
-                  onToggleMute={() => {}}
-                  onToggleCamera={() => {}}
-                  onStartScreenShare={() => {}}
-                  onStopScreenShare={() => {}}
-                />
-              </div>
-            )}
-
-            {/* Incoming Call Modal */}
-            {incomingCall && (
-              <IncomingCallModal
-                incomingCall={incomingCall}
-                onAccept={(callId: string) => acceptCall(callId)}
-                onReject={(callId: string) => rejectCall(callId, 'User declined')}
-                isVisible={true}
-              />
-            )}
-          </>
-        )}
-
-        {/* Chat Window Modal */}
-        {showChatWindow && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg w-full max-w-6xl h-5/6 flex">
-              {/* Left Sidebar - Chatrooms List */}
-              <div className={`${selectedChatroom ? 'w-1/3' : 'w-full'} bg-gray-50 rounded-l-lg border-r`}>
-                <div className="p-4 border-b bg-gray-100">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Chat Rooms</h3>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setShowCreateChatroomModal(true)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                      >
-                        Create Room
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowChatWindow(false);
-                          setSelectedChatroom(null);
-                          setChatMessages(new Map());
-                        }}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="p-4 h-full overflow-y-auto">
+            {/* Chat Content */}
+            <div className="flex-1 flex flex-col min-h-0">
+              {!activeChatroom ? (
+                /* Chatroom List */
+                <div className="flex-1 overflow-y-auto p-4">
                   {isLoadingChatrooms ? (
-                    <div className="text-center py-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                      <p className="text-gray-500 mt-2">Loading chatrooms...</p>
-                    </div>
-                  ) : chatError ? (
-                    <div className="text-center py-8">
-                      <div className="text-red-500 mb-2">⚠️</div>
-                      <p className="text-red-600 font-medium">{chatError}</p>
-                      <button
-                        onClick={loadChatrooms}
-                        className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                      >
-                        Retry
-                      </button>
-                    </div>
+                    <div className="text-center text-gray-400 py-8">Loading chatrooms...</div>
                   ) : chatrooms.length === 0 ? (
-                    <div className="text-center py-8">
-                      <p className="text-gray-500">No chatrooms available</p>
-                      <p className="text-sm text-gray-400">Create your first chatroom to start chatting</p>
+                    <div className="text-center text-gray-400 py-8">
+                      <div className="text-4xl mb-4">💬</div>
+                      <p>No chatrooms available</p>
+                      <p className="text-sm mt-2">Create one to start chatting!</p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {chatrooms.map((chatroom) => {
-                        console.log('🔍 Rendering chatroom:', chatroom);
-                        return (
+                    <div className="space-y-2">
+                      {chatrooms.map((chatroom) => (
                         <div
                           key={chatroom.id}
-                          onClick={() => handleJoinChatroom(chatroom.id, chatroom.hasPassword)}
-                          className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                            selectedChatroom === chatroom.id
-                              ? 'bg-blue-100 border-blue-300'
-                              : 'bg-white hover:bg-gray-50 border-gray-200'
-                          }`}
+                          className="bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition-colors"
+                          onClick={() => {
+                            const password = prompt(`Enter password for "${chatroom.name}":`);
+                            if (password) {
+                              joinChatroom(chatroom.id, password);
+                            }
+                          }}
                         >
                           <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="font-medium text-gray-900">
-                                {chatroom.hasPassword ? '🔒' : '🌐'} {chatroom.name || 'Unnamed Room'}
-                              </h4>
+                            <div className="flex-1">
+                              <h4 className="text-white font-medium">{chatroom.name}</h4>
                               {chatroom.description && (
-                                <p className="text-sm text-gray-500">{chatroom.description}</p>
+                                <p className="text-gray-400 text-sm mt-1">{chatroom.description}</p>
                               )}
-                              <p className="text-xs text-gray-400">
-                                {chatroom.memberCount || 0} member(s) {chatroom.hasPassword && '• Password protected'}
-                              </p>
+                              <div className="flex items-center space-x-2 mt-2">
+                                <span className="text-xs text-gray-500">by {chatroom.creator.username}</span>
+                                <span className="text-xs text-gray-500">•</span>
+                                <span className="text-xs text-gray-500">{chatroom._count.members} members</span>
+                              </div>
                             </div>
+                            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
                           </div>
                         </div>
-                        );
-                      })}
+                      ))}
                     </div>
                   )}
                 </div>
-              </div>
-
-              {/* Right Side - Chat Interface */}
-              {selectedChatroom && (
-                <div className="w-2/3 flex flex-col">
+              ) : (
+                /* Active Chat */
+                <>
                   {/* Chat Header */}
-                  <div className="p-4 border-b bg-gray-50">
-                    <h4 className="font-semibold text-gray-900">
-                      {chatrooms.find(c => c.id === selectedChatroom)?.name || 'Chat Room'}
-                    </h4>
+                  <div className="p-3 border-b border-gray-700 flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setActiveChatroom(null)}
+                        className="text-gray-400 hover:text-white p-1 rounded"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <div>
+                        <h4 className="text-white font-medium">
+                          {chatrooms.find(c => c.id === activeChatroom)?.name || 'Chat'}
+                        </h4>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Chat Messages */}
-                  <div className="flex-1 overflow-y-auto p-4">
-                    {!selectedChatroom || !chatMessages.get(selectedChatroom) || chatMessages.get(selectedChatroom)?.length === 0 ? (
-                      <div className="text-center text-gray-500 py-8">
-                        <p>💬 No messages yet...</p>
-                        <p className="text-sm">Start the conversation!</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {chatMessages.get(selectedChatroom)?.map((msg) => (
-                          <div
-                            key={msg.id}
-                            className={`flex ${
-                              msg.userId === currentUser?.id ? 'justify-end' : 'justify-start'
-                            }`}
-                          >
-                            <div
-                              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                                msg.userId === currentUser?.id
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-white text-gray-900 border'
-                              }`}
-                            >
-                              <div className="text-xs opacity-75 mb-1">
-                                {msg.user.username} • {msg.timestamp ? msg.timestamp.toLocaleTimeString() : new Date(msg.createdAt).toLocaleTimeString()}
-                              </div>
-                              <div className="text-sm">{msg.content}</div>
-                            </div>
+                  {/* Messages */}
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {(chatMessages.get(activeChatroom) || []).map((message) => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.userId === currentUser?.id ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-xs px-3 py-2 rounded-lg ${
+                            message.userId === currentUser?.id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-700 text-white'
+                          }`}
+                        >
+                          {message.userId !== currentUser?.id && (
+                            <div className="text-xs text-gray-300 mb-1">{message.user.username}</div>
+                          )}
+                          <div className="text-sm">{message.content}</div>
+                          <div className="text-xs text-gray-300 mt-1">
+                            {new Date(message.createdAt).toLocaleTimeString()}
                           </div>
-                        ))}
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
 
-                  {/* Chat Input */}
-                  <div className="p-4 border-t">
+                  {/* Message Input */}
+                  <div className="p-3 border-t border-gray-700">
                     <div className="flex space-x-2">
                       <input
                         type="text"
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
-                        onKeyPress={handleKeyPress}
+                        onKeyPress={(e) => e.key === 'Enter' && sendChatMessage()}
                         placeholder="Type a message..."
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        maxLength={500}
+                        className="flex-1 bg-gray-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
-                        onClick={handleSendMessage}
+                        onClick={sendChatMessage}
                         disabled={!chatInput.trim()}
-                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-3 py-2 rounded-lg transition-colors"
                       >
-                        Send
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        </svg>
                       </button>
                     </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Password Modal */}
-        {showJoinChatroomModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
-            <div className="bg-white rounded-lg p-6 w-96">
-              <h3 className="text-lg font-semibold mb-4">Enter Chatroom Password</h3>
-              <input
-                type="password"
-                value={chatroomPassword}
-                onChange={(e) => setChatroomPassword(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter' && pendingChatroomId) {
-                    handleJoinWithPassword();
-                  }
-                }}
-                placeholder="Enter password..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-              />
-              <div className="flex space-x-2">
+            {/* Error Message */}
+            {chatError && (
+              <div className="p-3 bg-red-900/50 border-t border-red-700">
+                <div className="text-red-300 text-sm">{chatError}</div>
+              </div>
+            )}
+          </div>
+        )}    
+    {/* Create Chatroom Modal */}
+        {showCreateChatroom && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg p-6 w-96 max-w-full mx-4">
+              <h3 className="text-white font-semibold text-lg mb-4">Create Chatroom</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-gray-300 text-sm mb-2">Name *</label>
+                  <input
+                    type="text"
+                    value={newChatroomName}
+                    onChange={(e) => setNewChatroomName(e.target.value)}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter chatroom name"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-gray-300 text-sm mb-2">Description</label>
+                  <textarea
+                    value={newChatroomDescription}
+                    onChange={(e) => setNewChatroomDescription(e.target.value)}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-none"
+                    placeholder="Enter description (optional)"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-gray-300 text-sm mb-2">Password *</label>
+                  <input
+                    type="password"
+                    value={newChatroomPassword}
+                    onChange={(e) => setNewChatroomPassword(e.target.value)}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter password"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
                 <button
-                  onClick={() => {
-                    setShowJoinChatroomModal(false);
-                    setChatroomPassword('');
-                    setPendingChatroomId(null);
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  onClick={() => setShowCreateChatroom(false)}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleJoinWithPassword}
-                  disabled={!chatroomPassword.trim()}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  onClick={createChatroom}
+                  disabled={!newChatroomName.trim() || !newChatroomPassword.trim() || isCreatingChatroom}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 rounded-lg transition-colors"
+                >
+                  {isCreatingChatroom ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Join Chatroom Modal */}
+        {showJoinChatroom && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg p-6 w-96 max-w-full mx-4">
+              <h3 className="text-white font-semibold text-lg mb-4">Join Chatroom</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-gray-300 text-sm mb-2">Chatroom ID</label>
+                  <input
+                    type="text"
+                    value={joinChatroomId}
+                    onChange={(e) => setJoinChatroomId(e.target.value)}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter chatroom ID"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-gray-300 text-sm mb-2">Password</label>
+                  <input
+                    type="password"
+                    value={joinChatroomPassword}
+                    onChange={(e) => setJoinChatroomPassword(e.target.value)}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter password"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowJoinChatroom(false);
+                    setJoinChatroomId('');
+                    setJoinChatroomPassword('');
+                  }}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (joinChatroomId.trim() && joinChatroomPassword.trim()) {
+                      joinChatroom(joinChatroomId, joinChatroomPassword).then((success) => {
+                        if (success) {
+                          setShowJoinChatroom(false);
+                          setJoinChatroomId('');
+                          setJoinChatroomPassword('');
+                        }
+                      });
+                    }
+                  }}
+                  disabled={!joinChatroomId.trim() || !joinChatroomPassword.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 rounded-lg transition-colors"
                 >
                   Join
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Create Chatroom Modal */}
-        {showCreateChatroomModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
-            <div className="bg-white rounded-lg p-6 w-96">
-              <h3 className="text-lg font-semibold mb-4">Create New Chatroom</h3>
-              
-              {/* Room Name */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Room Name *
-                </label>
-                <input
-                  type="text"
-                  value={newChatroomName}
-                  onChange={(e) => setNewChatroomName(e.target.value)}
-                  placeholder="Enter chatroom name..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Description */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description (optional)
-                </label>
-                <textarea
-                  value={newChatroomDescription}
-                  onChange={(e) => setNewChatroomDescription(e.target.value)}
-                  placeholder="Enter chatroom description..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                />
-              </div>
-
-              {/* Password */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Password (optional)
-                </label>
-                <input
-                  type="password"
-                  value={newChatroomPassword}
-                  onChange={(e) => setNewChatroomPassword(e.target.value)}
-                  placeholder="Leave empty for public room..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {newChatroomPassword ? '🔒 This will be a private room' : '🌐 This will be a public room'}
-                </p>
-              </div>
-
-              {/* Error Display */}
-              {chatError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-600 text-sm">{chatError}</p>
-                </div>
-              )}
-
-              {/* Buttons */}
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => {
-                    setShowCreateChatroomModal(false);
-                    setNewChatroomName('');
-                    setNewChatroomDescription('');
-                    setNewChatroomPassword('');
-                    setChatError('');
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  disabled={isCreatingChatroom}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateChatroom}
-                  disabled={!newChatroomName.trim() || isCreatingChatroom}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isCreatingChatroom ? 'Creating...' : 'Create Room'}
                 </button>
               </div>
             </div>
@@ -1480,3 +1247,228 @@ export default function SpacePage() {
     </ProtectedRoute>
   );
 }
+
+// Space Canvas Component
+interface SpaceCanvasProps {
+  space: Space | null;
+  elements: SpaceElement[];
+  users: User[];
+  currentUser: User | null;
+  nearbyUsers: User[];
+  onUserMove: (x: number, y: number) => void;
+}
+
+const SpaceCanvas: React.FC<SpaceCanvasProps> = ({
+  space,
+  elements,
+  users,
+  currentUser,
+  nearbyUsers,
+  onUserMove
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [scale, setScale] = useState(0.8);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const GRID_SIZE = 20;
+
+  // Draw the space
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !space) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight - 80; // Account for header
+
+    // Clear canvas
+    ctx.fillStyle = '#1f2937'; // gray-800
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Save context
+    ctx.save();
+
+    // Apply transformations
+    ctx.translate(offset.x, offset.y);
+    ctx.scale(scale, scale);
+
+    // Draw grid
+    ctx.strokeStyle = '#374151'; // gray-700
+    ctx.lineWidth = 1 / scale;
+    
+    for (let x = 0; x <= space.width; x += GRID_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, space.height);
+      ctx.stroke();
+    }
+    
+    for (let y = 0; y <= space.height; y += GRID_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(space.width, y);
+      ctx.stroke();
+    }
+
+    // Draw space boundary
+    ctx.strokeStyle = '#6b7280'; // gray-500
+    ctx.lineWidth = 2 / scale;
+    ctx.strokeRect(0, 0, space.width, space.height);
+
+    // Draw elements
+    elements.forEach(element => {
+      ctx.fillStyle = '#4b5563'; // gray-600
+      ctx.fillRect(
+        element.x,
+        element.y,
+        element.element.width,
+        element.element.height
+      );
+      
+      if (element.element.imageUrl) {
+        // TODO: Load and draw images
+      }
+    });
+
+    // Draw users
+    users.forEach(user => {
+      const isNearby = nearbyUsers.some(nu => nu.id === user.id);
+      
+      // Draw proximity circle for nearby users
+      if (isNearby) {
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.1)'; // green-500 with opacity
+        ctx.strokeStyle = '#22c55e'; // green-500
+        ctx.lineWidth = 2 / scale;
+        ctx.beginPath();
+        ctx.arc(user.x + 10, user.y + 10, GRID_SIZE * 2, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      
+      // Draw user avatar
+      ctx.fillStyle = isNearby ? '#22c55e' : '#6b7280'; // green-500 or gray-500
+      ctx.beginPath();
+      ctx.arc(user.x + 10, user.y + 10, 8, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // Draw username
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${12 / scale}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText(user.username, user.x + 10, user.y - 5);
+    });
+
+    // Draw current user
+    if (currentUser) {
+      // Draw proximity range
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.1)'; // blue-500 with opacity
+      ctx.strokeStyle = '#3b82f6'; // blue-500
+      ctx.lineWidth = 2 / scale;
+      ctx.beginPath();
+      ctx.arc(currentUser.x + 10, currentUser.y + 10, GRID_SIZE * 2, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Draw current user avatar
+      ctx.fillStyle = '#3b82f6'; // blue-500
+      ctx.beginPath();
+      ctx.arc(currentUser.x + 10, currentUser.y + 10, 10, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // Draw username
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${14 / scale}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`${currentUser.username} (You)`, currentUser.x + 10, currentUser.y - 8);
+    }
+
+    // Restore context
+    ctx.restore();
+  }, [space, elements, users, currentUser, nearbyUsers, scale, offset]);
+
+  // Handle mouse events
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      setOffset({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setScale(prev => Math.max(0.1, Math.min(3, prev * delta)));
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (!currentUser || !space || isDragging) return;
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const x = (e.clientX - rect.left - offset.x) / scale;
+    const y = (e.clientY - rect.top - offset.y) / scale;
+
+    // Snap to grid
+    const gridX = Math.round(x / GRID_SIZE) * GRID_SIZE;
+    const gridY = Math.round(y / GRID_SIZE) * GRID_SIZE;
+
+    // Validate bounds
+    if (gridX >= 0 && gridX < space.width && gridY >= 0 && gridY < space.height) {
+      onUserMove(gridX, gridY);
+    }
+  };
+
+  return (
+    <div className="w-full h-full relative">
+      <canvas
+        ref={canvasRef}
+        className="cursor-move"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
+        onClick={handleClick}
+      />
+      
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 bg-gray-800/90 backdrop-blur-sm rounded-lg p-2 space-y-2">
+        <button
+          onClick={() => setScale(prev => Math.min(3, prev * 1.2))}
+          className="block w-8 h-8 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm"
+        >
+          +
+        </button>
+        <button
+          onClick={() => setScale(prev => Math.max(0.1, prev / 1.2))}
+          className="block w-8 h-8 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm"
+        >
+          -
+        </button>
+        <button
+          onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }); }}
+          className="block w-8 h-8 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs"
+        >
+          1:1
+        </button>
+      </div>
+    </div>
+  );
+};
