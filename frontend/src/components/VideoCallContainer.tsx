@@ -18,7 +18,7 @@ const VideoCallContainer: React.FC<VideoCallContainerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [callStatus, setCallStatus] = useState('disconnected');
-  
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const videoCallHandlerRef = useRef<VideoCallHandler | null>(null);
@@ -90,8 +90,8 @@ const VideoCallContainer: React.FC<VideoCallContainerProps> = ({
   }
 
   return (
-    <div 
-      id="video-call-container" 
+    <div
+      id="video-call-container"
       className="fixed inset-0 bg-black z-50 flex flex-col"
       style={{ display: isInCall ? 'flex' : 'none' }}
     >
@@ -106,7 +106,7 @@ const VideoCallContainer: React.FC<VideoCallContainerProps> = ({
             <p className="text-gray-300 text-sm">Status: {callStatus}</p>
           </div>
         </div>
-        
+
         <div className="flex items-center space-x-2">
           <div className="px-3 py-1 rounded-full text-sm bg-green-600">
             <span className="text-white">Within 2 tiles</span>
@@ -123,7 +123,7 @@ const VideoCallContainer: React.FC<VideoCallContainerProps> = ({
           playsInline
           className="w-full h-full object-cover bg-gray-800"
         />
-        
+
         {/* Remote Video Placeholder */}
         <div className="absolute inset-0 bg-gray-800 flex items-center justify-center pointer-events-none">
           <div className="text-center">
@@ -171,9 +171,8 @@ const VideoCallContainer: React.FC<VideoCallContainerProps> = ({
           {/* Mute Button */}
           <button
             onClick={handleToggleMute}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-              isMuted ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'
-            }`}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isMuted ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'
+              }`}
             title={isMuted ? 'Unmute' : 'Mute'}
           >
             {isMuted ? (
@@ -191,9 +190,8 @@ const VideoCallContainer: React.FC<VideoCallContainerProps> = ({
           {/* Camera Button */}
           <button
             onClick={handleToggleCamera}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-              isCameraOff ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'
-            }`}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isCameraOff ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'
+              }`}
             title={isCameraOff ? 'Turn on camera' : 'Turn off camera'}
           >
             {!isCameraOff ? (
