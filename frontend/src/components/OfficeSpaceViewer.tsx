@@ -79,6 +79,7 @@ const OfficeSpaceViewer: React.FC<OfficeSpaceViewerProps> = ({
   // Debug logging
   console.log('🏢 OfficeSpaceViewer props:', { 
     users: users.length, 
+    userDetails: users.map(u => ({ id: u.id, username: u.username, x: u.x, y: u.y, isCurrentUser: u.isCurrentUser })),
     currentUser: currentUser?.username,
     interactive,
     spaceSize: { width: space.width, height: space.height }

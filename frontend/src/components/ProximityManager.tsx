@@ -8,6 +8,7 @@ interface ProximityManagerProps {
   username: string;
   currentPosition: { x: number; y: number; z?: number };
   onNearbyUsersChange?: (users: User[]) => void;
+  allUsers?: User[]; // All users in the space for proximity calculation
 }
 
 interface NearbyUser extends User {
@@ -17,9 +18,10 @@ interface NearbyUser extends User {
 
 const ProximityManager: React.FC<ProximityManagerProps> = ({
   userId,
-  username, // Used for debugging (currently unused but kept for interface consistency)
+  username,
   currentPosition,
-  onNearbyUsersChange
+  onNearbyUsersChange,
+  allUsers = []
 }) => {
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [isProximityActive, setIsProximityActive] = useState(false);
@@ -36,6 +38,34 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
   const PROXIMITY_RANGE_TILES = 10; // 10 tiles for proximity detection
   const VIDEO_CALL_RANGE = VIDEO_CALL_RANGE_TILES * GRID_SIZE; // 40 pixels
   const PROXIMITY_RANGE = PROXIMITY_RANGE_TILES * GRID_SIZE; // 200 pixels
+
+  // Debug current state
+  useEffect(() => {
+    console.log('🔍 [PROXIMITY DEBUG] ProximityManager State:', {
+      userId,
+      username,
+      currentPosition,
+      isInitialized,
+      isProximityActive,
+      allUsersCount: allUsers.length,
+      allUsersDetails: allUsers.map(u => ({
+        id: u.id.slice(0, 8),
+        username: u.username,
+        x: u.x,
+        y: u.y,
+        isOnline: u.isOnline
+      })),
+      nearbyUsersCount: nearbyUsers.length,
+      nearbyUsers: nearbyUsers.map(u => ({
+        id: u.id,
+        username: u.username,
+        distance: u.distance.toFixed(1),
+        isInVideoRange: u.isInVideoCallRange
+      })),
+      VIDEO_CALL_RANGE,
+      PROXIMITY_RANGE
+    });
+  }, [userId, username, currentPosition, isInitialized, isProximityActive, allUsers, nearbyUsers, VIDEO_CALL_RANGE, PROXIMITY_RANGE]);
 
   /**
    * Calculate distance between two positions
@@ -63,6 +93,67 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       updatePosition(currentPosition.x, currentPosition.y, currentPosition.z || 0);
     }
   }, [currentPosition.x, currentPosition.y, currentPosition.z, updatePosition, isInitialized]);
+
+  /**
+   * Check proximity for all users whenever user list or position changes
+   */
+  useEffect(() => {
+    if (!isInitialized || allUsers.length === 0) return;
+
+    console.log('🔄 [PROXIMITY CHECK] Checking all users for proximity...', {
+      allUsersCount: allUsers.length,
+      currentPosition,
+      VIDEO_CALL_RANGE,
+      PROXIMITY_RANGE
+    });
+
+    const usersWithDistance: NearbyUser[] = allUsers
+      .filter(user => user.id !== userId && user.isOnline !== false)
+      .map(user => {
+        const distance = calculateDistance(currentPosition, { x: user.x, y: user.y });
+        return {
+          id: user.id,
+          username: user.username,
+          x: user.x,
+          y: user.y,
+          isOnline: true,
+          distance,
+          isInVideoCallRange: distance <= VIDEO_CALL_RANGE,
+        };
+      })
+      .filter(user => user.distance <= PROXIMITY_RANGE)
+      .sort((a, b) => a.distance - b.distance);
+
+    console.log('📊 [PROXIMITY CHECK] Results:', {
+      totalUsers: allUsers.length,
+      nearbyUsers: usersWithDistance.length,
+      usersInVideoRange: usersWithDistance.filter(u => u.isInVideoCallRange).length,
+      details: usersWithDistance.map(u => ({
+        id: u.id.slice(0, 8),
+        username: u.username,
+        distance: u.distance.toFixed(1) + 'px',
+        tiles: (u.distance / GRID_SIZE).toFixed(1),
+        inVideoRange: u.isInVideoCallRange
+      }))
+    });
+
+    setNearbyUsers(usersWithDistance);
+
+    // Update video call system with users in video call range
+    const usersInVideoRange = usersWithDistance.filter(user => user.isInVideoCallRange);
+    
+    if (usersInVideoRange.length > 0) {
+      console.log('🎥 [VIDEO CALL AUTO-TRIGGER] Users in video range:', usersInVideoRange.map(u => ({
+        id: u.id.slice(0, 8),
+        username: u.username,
+        distance: u.distance.toFixed(1)
+      })));
+      handleNearbyUsers(usersInVideoRange);
+    }
+
+    // Notify parent component
+    onNearbyUsersChange?.(usersWithDistance);
+  }, [allUsers, currentPosition, userId, isInitialized, calculateDistance, handleNearbyUsers, onNearbyUsersChange, VIDEO_CALL_RANGE, PROXIMITY_RANGE, GRID_SIZE]);
 
   /**
    * Handle WebSocket proximity updates
@@ -98,8 +189,19 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
 
       // Update video call system with users in video call range
       const usersInVideoRange = usersWithDistance.filter(user => user.isInVideoCallRange);
-      console.log(`🎥 [VIDEO CALL TRIGGER] ${usersInVideoRange.length} users in video call range, triggering handleNearbyUsers`);
-      handleNearbyUsers(usersInVideoRange);
+      console.log(`🎥 [VIDEO CALL TRIGGER] ${usersInVideoRange.length} users in video call range:`, usersInVideoRange.map(u => ({
+        id: u.id,
+        username: u.username,
+        distance: u.distance.toFixed(1),
+        position: { x: u.x, y: u.y }
+      })));
+      
+      if (usersInVideoRange.length > 0) {
+        console.log('📞 [VIDEO CALL] Calling handleNearbyUsers with users in range');
+        handleNearbyUsers(usersInVideoRange);
+      } else {
+        console.log('🚫 [VIDEO CALL] No users in video range, not triggering call');
+      }
 
       // Notify parent component
       onNearbyUsersChange?.(usersWithDistance);

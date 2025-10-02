@@ -232,8 +232,8 @@ export class User {
 
             console.log(`🎯 [SPAWN] User ${username} (#${currentUserCount}) spawned at fixed grid position (${this.x}, ${this.y}) in space ${spaceId} with boundaries ${maxGridX}x${maxGridY}`);
 
-            // Add user to room manager
-            Roommanager.getInstance().addUser(spaceId, this);
+            // Add user to room manager (now async for Redis)
+            await Roommanager.getInstance().addUser(spaceId, this);
 
             // Broadcast user joined to others
             Roommanager.getInstance().broadCast({
@@ -246,8 +246,47 @@ export class User {
                 }
             }, this, this.spaceId);
 
-            // Send join confirmation with current users
+            // Get users from both memory AND Redis (for reconnection resilience)
             const currentUsers = Roommanager.getInstance().getSpaceUsers(spaceId);
+            const redisUsers = await Roommanager.getInstance().getUsersFromRedis(spaceId);
+            
+            // Merge users from memory and Redis, removing duplicates
+            const userMap = new Map<string, any>();
+            
+            // Add current connected users from memory (priority)
+            currentUsers
+                .filter(user => user.id !== this.id)
+                .forEach(user => {
+                    const uid = user.getUserId();
+                    if (uid) {
+                        userMap.set(uid, {
+                            userId: uid,
+                            username: user.getUsername(),
+                            x: user.getX(),
+                            y: user.getY(),
+                        });
+                    }
+                });
+            
+            // Add users from Redis if not already in memory (reconnection case)
+            redisUsers
+                .filter(user => user.userId !== this.userId)
+                .forEach(user => {
+                    if (!userMap.has(user.userId)) {
+                        userMap.set(user.userId, {
+                            userId: user.userId,
+                            username: user.username,
+                            x: user.x,
+                            y: user.y,
+                        });
+                    }
+                });
+            
+            const allUsers = Array.from(userMap.values());
+            
+            console.log(`📊 [SPACE JOIN] Sending ${allUsers.length} users to ${username}: ${currentUsers.length} from memory, ${redisUsers.length} from Redis`);
+            
+            // Send join confirmation with merged user list
             this.send({
                 type: 'space-joined',
                 payload: {
@@ -255,14 +294,7 @@ export class User {
                         x: this.x,
                         y: this.y,
                     },
-                    users: currentUsers
-                        .filter(user => user.id !== this.id)
-                        .map(user => ({
-                            userId: user.getUserId(),
-                            username: user.getUsername(),
-                            x: user.getX(),
-                            y: user.getY(),
-                        }))
+                    users: allUsers
                 }
             });
 
@@ -350,6 +382,11 @@ export class User {
             // Update position
             this.x = moveX;
             this.y = moveY;
+            
+            // Update position in Redis
+            if (this.userId) {
+                await Roommanager.getInstance().updateUserPositionInRedis(this.spaceId, this.userId, moveX, moveY);
+            }
 
             // Send movement confirmation to the user
             console.log(`📤 [MOVE CONFIRM] Sending confirmation to ${this.username}`);

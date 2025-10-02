@@ -243,6 +243,121 @@ export class RedisService {
         }
     }
 
+    // ============= SPACE/ROOM STATE MANAGEMENT =============
+    
+    // Save user state in a space (position, username, etc.)
+    public async saveUserInSpace(spaceId: string, userId: string, userData: {
+        username: string;
+        x: number;
+        y: number;
+        connectionId: string;
+    }): Promise<void> {
+        try {
+            const key = `space:${spaceId}:users`;
+            const userDataJson = JSON.stringify({
+                ...userData,
+                lastUpdated: Date.now()
+            });
+            
+            await this.client.hSet(key, userId, userDataJson);
+            await this.client.expire(key, 3600); // 1 hour expiration
+            
+            console.log(`💾 [REDIS SPACE] Saved user ${userData.username} in space ${spaceId} at (${userData.x}, ${userData.y})`);
+        } catch (error) {
+            console.error('❌ Failed to save user in space to Redis:', error);
+        }
+    }
+
+    // Remove user from space
+    public async removeUserFromSpace(spaceId: string, userId: string): Promise<void> {
+        try {
+            const key = `space:${spaceId}:users`;
+            await this.client.hDel(key, userId);
+            console.log(`🗑️ [REDIS SPACE] Removed user ${userId} from space ${spaceId}`);
+        } catch (error) {
+            console.error('❌ Failed to remove user from space in Redis:', error);
+        }
+    }
+
+    // Get all users in a space
+    public async getUsersInSpace(spaceId: string): Promise<Array<{
+        userId: string;
+        username: string;
+        x: number;
+        y: number;
+        connectionId: string;
+        lastUpdated: number;
+    }>> {
+        try {
+            const key = `space:${spaceId}:users`;
+            const usersData = await this.client.hGetAll(key);
+            
+            const users = Object.entries(usersData).map(([userId, dataJson]) => {
+                const data = JSON.parse(dataJson);
+                return {
+                    userId,
+                    ...data
+                };
+            });
+            
+            console.log(`📖 [REDIS SPACE] Retrieved ${users.length} users from space ${spaceId}`);
+            return users;
+        } catch (error) {
+            console.error('❌ Failed to get users in space from Redis:', error);
+            return [];
+        }
+    }
+
+    // Update user position in space
+    public async updateUserPosition(spaceId: string, userId: string, x: number, y: number): Promise<void> {
+        try {
+            const key = `space:${spaceId}:users`;
+            const userDataJson = await this.client.hGet(key, userId);
+            
+            if (userDataJson) {
+                const userData = JSON.parse(userDataJson);
+                userData.x = x;
+                userData.y = y;
+                userData.lastUpdated = Date.now();
+                
+                await this.client.hSet(key, userId, JSON.stringify(userData));
+                await this.client.expire(key, 3600); // Refresh expiration
+                
+                console.log(`📍 [REDIS SPACE] Updated position for user ${userId} in space ${spaceId} to (${x}, ${y})`);
+            }
+        } catch (error) {
+            console.error('❌ Failed to update user position in Redis:', error);
+        }
+    }
+
+    // Clean up stale users (not updated in last 5 minutes)
+    public async cleanupStaleUsersInSpace(spaceId: string, maxAgeMs: number = 300000): Promise<number> {
+        try {
+            const key = `space:${spaceId}:users`;
+            const usersData = await this.client.hGetAll(key);
+            const now = Date.now();
+            let cleanedCount = 0;
+            
+            for (const [userId, dataJson] of Object.entries(usersData)) {
+                const userData = JSON.parse(dataJson);
+                if (now - userData.lastUpdated > maxAgeMs) {
+                    await this.client.hDel(key, userId);
+                    cleanedCount++;
+                    console.log(`🧹 [REDIS CLEANUP] Removed stale user ${userId} from space ${spaceId}`);
+                }
+            }
+            
+            if (cleanedCount > 0) {
+                console.log(`🧹 [REDIS CLEANUP] Cleaned up ${cleanedCount} stale users from space ${spaceId}`);
+            }
+            
+            return cleanedCount;
+        } catch (error) {
+            console.error('❌ Failed to cleanup stale users in Redis:', error);
+            return 0;
+        }
+    }
+
     // Health check
     public async healthCheck(): Promise<{ status: string; latency: number }> {
         try {

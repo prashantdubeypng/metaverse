@@ -771,12 +771,14 @@ export default function SpacePage() {
       }
       
       // Set other users in the space
+      console.log('👥 [DEBUG] Received users from space-joined:', payload.users);
       const otherUsers = (payload.users || []).map((user: { userId: string; username?: string; x: number; y: number }) => ({
         id: user.userId,
         username: user.username || `User_${user.userId?.slice(0, 8) || 'Unknown'}`,
         x: user.x * GRID_SIZE,
         y: user.y * GRID_SIZE
       }));
+      console.log('👥 [DEBUG] Processed other users:', otherUsers);
       setUsers(otherUsers);
       setConnectionStatus('In Space');
     });
@@ -797,12 +799,21 @@ export default function SpacePage() {
       const movedPixelX = payload.x * GRID_SIZE;
       const movedPixelY = payload.y * GRID_SIZE;
       
+      console.log(`🔄 [USER-MOVED] Converting Grid: (${payload.x}, ${payload.y}) → Pixel: (${movedPixelX}, ${movedPixelY})`);
+      
       if (currentUser && payload.userId === currentUser.id) {
-        setCurrentUser(prev => prev ? {
-          ...prev,
-          x: movedPixelX,
-          y: movedPixelY
-        } : null);
+        console.log(`👤 [CURRENT USER] Before update - x: ${currentUser.x}, y: ${currentUser.y}`);
+        console.log(`👤 [CURRENT USER] After update  - x: ${movedPixelX}, y: ${movedPixelY}`);
+        setCurrentUser(prev => {
+          if (prev) {
+            console.log(`✅ [SET CURRENT USER] Updating from (${prev.x}, ${prev.y}) to (${movedPixelX}, ${movedPixelY})`);
+          }
+          return prev ? {
+            ...prev,
+            x: movedPixelX,
+            y: movedPixelY
+          } : null;
+        });
       }
       
       setUsers(prev => prev.map(user => 
@@ -819,11 +830,16 @@ export default function SpacePage() {
 
     websocketService.on('move-rejected', (payload: { userId: string; x: number; y: number }) => {
       console.log('❌ Movement rejected:', payload);
+      // Backend sends grid coordinates, convert to pixels
+      const rejectedPixelX = payload.x * GRID_SIZE;
+      const rejectedPixelY = payload.y * GRID_SIZE;
+      console.log(`🔙 [MOVE REJECTED] Restoring position - Grid: (${payload.x}, ${payload.y}) → Pixel: (${rejectedPixelX}, ${rejectedPixelY})`);
+      
       if (currentUser && payload.userId === currentUser.id) {
         setCurrentUser(prev => prev ? {
           ...prev,
-          x: payload.x * GRID_SIZE,
-          y: payload.y * GRID_SIZE
+          x: rejectedPixelX,
+          y: rejectedPixelY
         } : null);
       }
     });
@@ -1087,8 +1103,9 @@ export default function SpacePage() {
               userId={currentUser.id}
               username={currentUser.username}
               currentPosition={{ x: currentUser.x, y: currentUser.y, z: 0 }}
+              allUsers={[...users, { ...currentUser, isCurrentUser: true }]}
               onNearbyUsersChange={(nearbyUsers) => {
-                console.log('🎥 Nearby users updated:', nearbyUsers);
+                console.log('🎥 [SPACE PAGE] Nearby users updated:', nearbyUsers);
               }}
             />
 

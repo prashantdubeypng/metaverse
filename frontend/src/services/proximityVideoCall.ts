@@ -97,21 +97,26 @@ class ProximityVideoCallManager extends EventEmitter {
     const oldPosition = { ...this.state.localPosition };
     this.state.localPosition = { x, y, z };
     
+    // Convert pixel coordinates to grid coordinates for backend
+    const gridX = Math.round(x / 20);
+    const gridY = Math.round(y / 20);
+    
     console.log('📍 [DEBUG] Position updated in video service:', {
       oldPosition,
       newPosition: this.state.localPosition,
-      gridPosition: {
-        x: Math.round(x / 20),
-        y: Math.round(y / 20)
-      },
+      gridPosition: { x: gridX, y: gridY },
       currentUserId: this.currentUserId
     });
     
-    // Send position update through WebSocket
+    // Send GRID coordinates to backend (not pixel coordinates!)
     if (this.websocketService) {
       this.websocketService.emit('proximity-position-update', {
         userId: this.currentUserId,
-        position: this.state.localPosition,
+        position: {
+          x: gridX,  // Send grid coordinates
+          y: gridY,  // Send grid coordinates
+          z: z
+        },
         isInVideoCall: this.state.isActive,
       });
     }
