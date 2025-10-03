@@ -1,150 +1,535 @@
------
+# 🌐 Metaverse Platform with Proximity Video Calls
 
-# 🎮 2D Metaverse Collaboration Platform
+A comprehensive real-time metaverse platform built with modern web technologies, featuring **automatic proximity-based video calls**, spatial chat, and scalable microservices architecture.
 
-Welcome to the 2D Metaverse Collaboration Platform\! This is a real-time, interactive 2D world designed for seamless team collaboration. It features integrated video and voice chat, public and private rooms, and a secure, role-based access system.
+## ✨ Key Features
 
+### 🎥 **Proximity Video Calls** (NEW!)
+- **Automatic video calls** when users are within 2 tiles of each other
+- **No manual calling** - calls start and end based on proximity
+- **WebRTC peer-to-peer** connections for high-quality video/audio
+- **Real-time signaling** through WebSocket infrastructure
+- **Seamless integration** with existing movement system
 
------
+### 🏢 **Virtual Spaces**
+- Create and manage 2D virtual environments
+- Grid-based movement system with collision detection
+- Real-time user position tracking and synchronization
 
-## 🚀 Key Features
+### 💬 **Spatial Communication**
+- Location-aware chat with multiple chatrooms per space
+- Real-time messaging with Kafka persistence
+- Redis pub/sub for instant message delivery
 
-  * **✅ 2D Metaverse Environment**: A fully interactive 2D space where users can move their avatars, join tables, and enter different rooms to collaborate.
-  * **✅ Real-Time Communication**: High-quality video and voice calls powered by WebRTC for direct, peer-to-peer communication.
-  * **✅ Role-Based Access Control**: Admins can create and manage public and private rooms. Standard users can create their own private, temporary rooms.
-  * **✅ Private Chat Rooms**: Users can create their own private spaces and control access through direct invitations or by approving requests to join.
-  * **✅ Test-Driven Development**: The application is built with a TDD approach using Jest, achieving over 90% test coverage for a robust and reliable codebase.
-  * **✅ Scalable Deployment**: Ready for production with Docker containerization and a Kubernetes-managed deployment on AWS EKS, complete with an automated CI/CD pipeline.
+### 👥 **User Management**
+- JWT-based authentication and authorization
+- User profiles, avatars, and presence status
+- Space membership and role management
 
-## 🛠️ Tech Stack
+## 🏗️ Enhanced Architecture Overview
 
-| Category         | Technologies                               |
-| ---------------- | ------------------------------------------ |
-| **Frontend** | `React`, `Pixi.js`, `TailwindCSS`            |
-| **Backend** | `Node.js`, `Express.js`, `MongoDB`         |
-| **Real-Time** | `Socket.IO`, `WebRTC`                      |
-| **Testing** | `Jest`                                     |
-| **Deployment** | `Docker`, `Kubernetes (AWS EKS)`           |
-| **CI/CD** | `GitHub Actions`                           |
-
-## 📐 Architecture
-
-The platform uses a scalable microservices-oriented architecture. The frontend communicates with the backend via a REST API for standard requests and a WebSocket connection for real-time events. Peer-to-peer WebRTC connections are established for video/voice chat to minimize server load.
-flowchart TD
-    A[User's Browser] --> B[React Frontend];
-    B -->|REST API (HTTPS)| C[Express Backend];
-    B -->|WebSocket (WSS)| D[Socket.IO Server];
-    B <-.->|WebRTC Peer-to-Peer| B;
-    C --> E[(MongoDB Database)];
-    D --> C;
-
-    subgraph "AWS Cloud"
-        direction LR
-        G[Kubernetes Cluster on EKS]
-    end
-
-    C --> G;
-    D --> G;
-    G --> H[Docker Containers];
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   HTTP API      │    │   WebSocket     │
+│   (WebRTC)      │◄──►│   Service       │◄──►│   Service       │
+│                 │    │                 │    │ + VideoCallMgr  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                        │
+         │ P2P Video             ▼                        ▼
+         │                ┌─────────────────┐    ┌─────────────────┐
+         │                │   PostgreSQL    │    │   Redis Cache   │
+         │                │   Database      │    │   & PubSub      │
+         │                └─────────────────┘    └─────────────────┘
+         │                                                │
+         │                                                ▼
+         │                                    ┌─────────────────┐
+         └────────────────────────────────────│   Kafka Queue   │
+                  WebRTC Signaling            │   & Analytics   │
+                                              └─────────────────┘
+                                                        │
+                                                        ▼
+                                            ┌─────────────────┐
+                                            │   Kafka         │
+                                            │   Consumer      │
+                                            │   Service       │
+                                            └─────────────────┘
 ```
 
-## ⚙️ Getting Started
+## 🎯 Video Call System Architecture
 
-Follow these instructions to get a local development environment up and running.
+### **Proximity Detection Engine**
+```
+User Movement → Position Update → Proximity Check → Auto Video Call
+     ↓               ↓                ↓                    ↓
+  Grid System    WebSocket Sync   2-Tile Radius    WebRTC Connection
+```
 
-### Prerequisites
+### **Video Call Flow**
+1. **User A** moves within 2 tiles of **User B**
+2. **VideoCallManager** detects proximity automatically
+3. **WebSocket** sends `video-call-start` to both users
+4. **Frontend** establishes WebRTC peer-to-peer connection
+5. **Video/audio streams** flow directly between users
+6. **Call ends automatically** when users move apart
 
-  * Node.js (v18.x or later)
-  * npm or yarn
-  * MongoDB Instance (local or cloud-hosted)
-  * Git
+### **WebRTC Signaling**
+```
+User A                    WebSocket Server                    User B
+  │                            │                               │
+  ├─── Offer ────────────────► │ ─────────────────────────────► │
+  │                            │                               │
+  │ ◄─────────────────────────── │ ◄─────────── Answer ─────────┤
+  │                            │                               │
+  ├─ ICE Candidates ─────────► │ ─────────────────────────────► │
+  │                            │                               │
+  │ ◄─────────────────────────── │ ◄───── ICE Candidates ──────┤
+  │                            │                               │
+  └──── Direct P2P Video ──────────────────────────────────────┘
+```
 
-### Installation & Setup
+## 📁 Enhanced Project Structure
 
-1.  **Clone the repository:**
+```
+📁 metaverse/
+├── 📁 apps/                          # Microservices
+│   ├── 📁 http/                      # REST API service
+│   │   ├── 📁 src/
+│   │   │   ├── 📁 routes/v1/         # API endpoints
+│   │   │   │   ├── 📄 chatroom.ts    # Chat management
+│   │   │   │   ├── 📄 space.ts       # Virtual spaces
+│   │   │   │   ├── 📄 user.ts        # User management
+│   │   │   │   └── 📁 chats_route/   # Chat controllers
+│   │   │   ├── 📁 middleware/        # Auth & validation
+│   │   │   ├── 📁 services/          # Business logic
+│   │   │   └── 📁 types/             # TypeScript definitions
+│   │   └── 📄 package.json
+│   │
+│   ├── 📁 ws/                        # 🎥 WebSocket + Video Call Service
+│   │   ├── 📁 src/
+│   │   │   ├── 📄 User.ts            # User connection handling
+│   │   │   ├── 📄 Roommanager.ts     # Space management
+│   │   │   ├── 📄 VideoCallManager.ts # 🎥 Proximity video calls
+│   │   │   ├── 📄 KafkaChatService.ts # Chat messaging
+│   │   │   ├── 📄 RedisService.ts    # Real-time pub/sub
+│   │   │   ├── 📄 types.ts           # WebSocket types
+│   │   │   └── 📄 index.ts           # Main server
+│   │   └── 📄 package.json
+│   │
+│   ├── 📁 kafka-service/             # Message processing
+│   │   ├── 📄 src/index.ts           # Kafka consumer
+│   │   └── 📄 package.json
+│   │
+│   └── 📁 media-service/             # File & media handling
+│
+├── 📁 packages/                      # Shared libraries
+│   ├── 📁 db/                        # Database schema & client
+│   │   ├── 📁 prisma/
+│   │   │   ├── 📄 schema.prisma      # Database models
+│   │   │   └── 📁 migrations/        # DB migrations
+│   │   └── 📄 package.json
+│   │
+│   ├── 📁 webrtc-client/             # 🎥 WebRTC client utilities
+│   │   ├── 📁 src/
+│   │   │   ├── 📁 calling/           # Call management
+│   │   │   ├── 📁 proximity/         # Proximity detection
+│   │   │   ├── 📁 types/             # Video call types
+│   │   │   └── 📁 utils/             # WebRTC utilities
+│   │   └── 📄 package.json
+│   │
+│   ├── 📁 shared-types/              # Common TypeScript types
+│   ├── 📁 kafka-client/              # Kafka utilities
+│   ├── 📁 redis-client/              # Redis utilities
+│   └── 📁 ui/                        # Shared UI components
+│
+├── 📁 tests/                         # Test suites
+│   ├── 📁 unit/                      # Unit tests
+│   ├── 📁 integration/               # Integration tests
+│   └── 📁 e2e/                       # End-to-end tests
+│
+├── 📄 package.json                   # Root package configuration
+├── 📄 tsconfig.json                  # TypeScript configuration
+└── 📄 turbo.json                     # Turborepo configuration
+```
 
-    ```bash
-    git clone https://github.com/prashantdubeypng/metaverse.git
-    cd metaverse
-    ```
+## 🛠️ Technology Stack
 
-2.  **Install dependencies:**
+### **Backend Services**
+- **Node.js** + **TypeScript** - Runtime and language
+- **Express.js** - HTTP API framework
+- **WebSocket (ws)** - Real-time communication
+- **WebRTC** - Peer-to-peer video/audio calls
+- **Prisma** - Database ORM and migrations
+- **PostgreSQL** - Primary database
+- **Redis** - Caching and pub/sub
+- **Kafka** - Message queuing and analytics
 
-    ```bash
-    # Using npm
-    npm install
+### **Video Call Technology**
+- **WebRTC** - Peer-to-peer video/audio streaming
+- **STUN/TURN Servers** - NAT traversal for connections
+- **WebSocket Signaling** - Offer/answer/ICE candidate exchange
+- **Proximity Detection** - Grid-based spatial awareness
+- **Automatic Call Management** - No manual intervention required
 
-    # Or using yarn
-    yarn install
-    ```
+### **Infrastructure**
+- **Turborepo** - Monorepo build system
+- **pnpm** - Package manager
+- **JWT** - Authentication tokens
+- **ESLint** + **Prettier** - Code quality
+- **Jest** - Testing framework
 
-3.  **Configure Environment Variables:**
-    Create a `.env` file in the root of the project and add the necessary configuration (e.g., MongoDB connection string, JWT secret).
+## 🚀 Quick Start
 
-    ```
-    MONGO_URI=your_mongodb_connection_string
-    JWT_SECRET=your_super_secret_key
-    ```
+### **Prerequisites**
+- **Node.js** >= 18
+- **pnpm** >= 9.0.0
+- **PostgreSQL** database
+- **Redis** server
+- **Kafka** cluster (or Aiven Cloud account)
 
-4.  **Run in Development Mode:**
-    This command will start the frontend and backend servers concurrently.
-
-    ```bash
-    npm run dev
-    ```
-
-    The application should now be running on `http://localhost:3000`.
-
-## 🧪 Running Tests
-
-To run the full test suite and see the coverage report, use the following command:
-
+### **1. Clone and Install**
 ```bash
-npm run test
+git clone <repository-url>
+cd metaverse
+pnpm install
 ```
 
-## 🐳 Docker Deployment
+### **2. Environment Setup**
+```bash
+# Copy environment templates
+cp apps/http/.env.example apps/http/.env
+cp apps/ws/.env.example apps/ws/.env
+cp apps/kafka-service/.env.example apps/kafka-service/.env
 
-The application is fully containerized for easy and consistent deployments.
+# Configure your environment variables
+# - Database URLs
+# - Kafka credentials  
+# - Redis connection
+# - JWT secrets
+```
 
-1.  **Build the Docker image:**
+### **3. Database Setup**
+```bash
+cd packages/db
+pnpm prisma migrate dev
+pnpm prisma generate
+```
 
-    ```bash
-    docker build -t metaverse-app .
-    ```
+### **4. Start Services**
+```bash
+# Terminal 1: HTTP API
+cd apps/http && pnpm dev
 
-2.  **Run using Docker Compose:**
-    `docker-compose` will build the image and start the container, along with a MongoDB service if configured.
+# Terminal 2: WebSocket + Video Call Service
+cd apps/ws && pnpm dev
 
-    ```bash
-    docker-compose up
-    ```
+# Terminal 3: Kafka Consumer
+cd apps/kafka-service && pnpm dev
+```
 
-## ☸️ Kubernetes Deployment
+### **5. Verify Setup**
+- **HTTP API**: http://localhost:3000
+- **WebSocket + Video**: http://localhost:3001
+- **Health Check**: http://localhost:3002
 
-The project includes Kubernetes manifests for deploying to a cluster like AWS EKS.
+## 📡 API Documentation
 
-1.  **Configure your `kubectl` context** to point to your Kubernetes cluster.
+### **WebSocket Events (Enhanced)**
 
-2.  **Apply the Kubernetes manifests:**
-    This single command applies all configurations located in the `k8s/` directory.
+#### **Connection & Movement**
+```javascript
+// Join space
+ws.send(JSON.stringify({
+  type: 'join',
+  payload: { spaceId: 'space-id', token: 'jwt-token' }
+}))
 
-    ```bash
-    kubectl apply -f k8s/
-    ```
+// Move user (triggers proximity detection)
+ws.send(JSON.stringify({
+  type: 'move',
+  payload: { x: 5, y: 3 }
+}))
+```
 
-    This will set up the following resources:
+#### **🎥 Video Call Events (NEW!)**
+```javascript
+// Automatic video call start (received from server)
+{
+  type: 'video-call-start',
+  payload: {
+    callId: 'call_123',
+    participants: [
+      { userId: 'user1', username: 'Alice', x: 5, y: 3 },
+      { userId: 'user2', username: 'Bob', x: 6, y: 3 }
+    ],
+    isProximityCall: true
+  }
+}
 
-      * **Deployment**: Manages the application pods.
-      * **Service**: Exposes the application within the cluster.
-      * **Ingress**: Manages external access to the application.
-      * **ConfigMap & Secrets**: Manages configuration and sensitive data.
+// WebRTC signaling data exchange
+ws.send(JSON.stringify({
+  type: 'video-call-signaling',
+  payload: { /* WebRTC offer/answer/ice-candidate */ }
+}))
 
-## 🚀 CI/CD Pipeline
+// Automatic video call end (received from server)
+{
+  type: 'video-call-end',
+  payload: {
+    callId: 'call_123',
+    reason: 'proximity_lost' // or 'user_ended', 'user_disconnected'
+  }
+}
 
-This project uses **GitHub Actions** for its Continuous Integration & Continuous Deployment pipeline. The workflow is defined in `.github/workflows/ci.yml` and performs the following steps on every push to the `main` branch:
+// Manual call end (send to server)
+ws.send(JSON.stringify({
+  type: 'video-call-end',
+  payload: { callId: 'call_123' }
+}))
+```
 
-1.  **Run Tests**: Executes the Jest test suite.
-2.  **Build Docker Image**: Builds the production-ready Docker image.
-3.  **Push to Registry**: Pushes the new image to a container registry (e.g., Docker Hub, AWS ECR).
-4.  **Deploy to EKS**: Automatically triggers a rolling update of the deployment on the AWS EKS cluster.
+#### **Chat System**
+```javascript
+// Join chatroom
+ws.send(JSON.stringify({
+  type: 'chat-join',
+  payload: { chatroomId: 'room-id' }
+}))
+
+// Send message
+ws.send(JSON.stringify({
+  type: 'chat-message',
+  payload: { 
+    chatroomId: 'room-id', 
+    content: 'Hello world!',
+    type: 'text'
+  }
+}))
+```
+
+## 🎥 Video Call Implementation Guide
+
+### **Backend (✅ Complete)**
+The video call system is fully implemented in the backend:
+
+- **VideoCallManager.ts** - Proximity detection and call management
+- **User.ts** - WebSocket integration and signaling relay
+- **Automatic proximity detection** - 2-tile radius monitoring
+- **WebRTC signaling server** - Relay offers/answers/ICE candidates
+- **Call lifecycle management** - Start, maintain, and end calls
+
+### **Frontend Integration**
+To add video calls to your frontend, implement these components:
+
+#### **1. WebSocket Message Handlers**
+```javascript
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  switch(data.type) {
+    case 'video-call-start':
+      startVideoCall(data.payload);
+      break;
+    case 'video-call-signaling':
+      handleWebRTCSignaling(data.payload);
+      break;
+    case 'video-call-end':
+      endVideoCall(data.payload);
+      break;
+  }
+};
+```
+
+#### **2. WebRTC Implementation**
+```javascript
+// Get user media
+const localStream = await navigator.mediaDevices.getUserMedia({
+  video: true,
+  audio: true
+});
+
+// Create peer connection
+const peerConnection = new RTCPeerConnection({
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+});
+
+// Handle signaling through WebSocket
+peerConnection.onicecandidate = (event) => {
+  if (event.candidate) {
+    ws.send(JSON.stringify({
+      type: 'video-call-signaling',
+      payload: { candidate: event.candidate }
+    }));
+  }
+};
+```
+
+#### **3. Video Display**
+```html
+<!-- Local video (your camera) -->
+<video id="localVideo" autoplay muted></video>
+
+<!-- Remote video (other user) -->
+<video id="remoteVideo" autoplay></video>
+```
+
+### **Complete Frontend Implementation**
+A complete WebRTC handler class is available in `frontend-video-implementation.js` that handles all the complexity for you.
+
+## 🔧 Configuration
+
+### **Environment Variables**
+
+#### **WebSocket Service (.env)**
+```env
+WS_PORT=3001
+DATABASE_URL="postgresql://user:pass@localhost:5432/metaverse"
+JWT_SECRET="your-jwt-secret"
+REDIS_URL="redis://localhost:6379"
+KAFKA_BROKER="your-kafka-broker:9092"
+KAFKA_USERNAME="kafka-user"
+KAFKA_PASSWORD="kafka-password"
+```
+
+#### **Video Call Configuration**
+```javascript
+// WebRTC Configuration
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+    // Add TURN servers for production
+  ]
+};
+
+// Proximity Settings
+const PROXIMITY_RANGE = 2; // tiles
+const CALL_TIMEOUT = 30000; // 30 seconds
+```
+
+## 📊 Enhanced Monitoring & Analytics
+
+### **Video Call Metrics**
+- **Active video calls** - Real-time call count
+- **Call duration** - Average and total call times
+- **Connection quality** - WebRTC connection states
+- **Proximity events** - User proximity detection frequency
+- **Call success rate** - Successful vs failed call attempts
+
+### **Server Logs**
+```bash
+📊 Server Stats: 15 users across 3 spaces
+🎥 Video Call Stats: 4 active calls, 8 users in calls
+🎥 Active Video Calls: call_123: user1 <-> user2 (45s)
+🏢 Active Spaces: space1: 8 users, space2: 4 users, space3: 3 users
+```
+
+## 🧪 Testing Video Calls
+
+### **Manual Testing**
+1. **Start the services** (HTTP, WebSocket, Kafka)
+2. **Connect two users** to the same space
+3. **Move users within 2 tiles** of each other
+4. **Video call starts automatically**
+5. **Move users apart** - call ends automatically
+
+### **Automated Testing**
+```bash
+# Test proximity detection
+pnpm test:unit -- VideoCallManager
+
+# Test WebSocket integration
+pnpm test:integration -- video-call
+
+# Test end-to-end video call flow
+pnpm test:e2e -- video-call-flow
+```
+
+## 🔒 Security Considerations
+
+### **Video Call Security**
+- **JWT authentication** required for all video calls
+- **WebRTC encryption** - All video/audio streams are encrypted
+- **STUN/TURN security** - Secure NAT traversal
+- **Proximity validation** - Server-side proximity verification
+- **Call authorization** - Only authenticated users can participate
+
+### **Privacy Features**
+- **Automatic call management** - No persistent call history
+- **Proximity-based** - Calls only with nearby users
+- **No recording** - Peer-to-peer streams, no server recording
+- **User control** - Users can end calls manually
+
+## 🚀 Deployment
+
+### **Production Considerations**
+- **TURN servers** required for users behind NAT/firewalls
+- **Load balancing** for WebSocket connections
+- **Redis clustering** for high availability
+- **Kafka partitioning** for message scaling
+- **Database connection pooling** for performance
+
+### **Scaling Video Calls**
+- **Horizontal scaling** - Multiple WebSocket servers
+- **Redis pub/sub** - Cross-server communication
+- **Load balancer** - Sticky sessions for WebSocket
+- **TURN server cluster** - Geographic distribution
+
+## 🎯 Roadmap
+
+### **Current Features** ✅
+- Proximity-based video calls (2-tile radius)
+- Automatic call start/end
+- WebRTC peer-to-peer connections
+- Real-time signaling
+- Chat integration
+
+### **Upcoming Features** 🚧
+- **Group video calls** - Multiple users in proximity
+- **Screen sharing** - Share screens during calls
+- **Call quality indicators** - Connection quality metrics
+- **Mobile support** - React Native integration
+- **Voice-only mode** - Audio-only calls option
+
+## 🤝 Contributing
+
+### **Video Call Development**
+- **Backend**: `metaverse/apps/ws/src/VideoCallManager.ts`
+- **Frontend**: `frontend-video-implementation.js`
+- **Types**: `metaverse/packages/webrtc-client/src/types/`
+- **Tests**: `tests/unit/video-call/`
+
+### **Development Workflow**
+1. **Fork** the repository
+2. **Create** feature branch (`git checkout -b feature/video-enhancement`)
+3. **Test** video call functionality
+4. **Commit** changes (`git commit -m 'Add video call enhancement'`)
+5. **Push** to branch (`git push origin feature/video-enhancement`)
+6. **Open** Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+### **Video Call Troubleshooting**
+1. **No video/audio**: Check browser permissions for camera/microphone
+2. **Connection failed**: Verify STUN/TURN server configuration
+3. **Calls not starting**: Check proximity detection (2-tile radius)
+4. **WebSocket errors**: Verify WebSocket server is running on port 3001
+
+### **Common Issues**
+1. **Kafka Connection Errors**: Verify broker URL and credentials
+2. **Database Connection**: Check PostgreSQL service and URL
+3. **WebSocket Failures**: Ensure ports 3001-3002 are available
+4. **Build Errors**: Clear node_modules and reinstall dependencies
+
+### **Getting Help**
+- **Issues**: Create GitHub issue with detailed description
+- **Video Call Issues**: Include browser console logs and WebRTC stats
+- **Discussions**: Use GitHub Discussions for questions
+- **Documentation**: Check service-specific README files
+
+---
+
+**🎥 Built with ❤️ for seamless virtual collaboration and proximity-based video communication**

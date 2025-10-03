@@ -1,0 +1,76 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directories
+coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+**/node_modules/
+
+# Build outputs
+build/
+dist/
+.next/
+.out/
+.cache/
+.turbo/
+**/.turbo/
+.vite/
+.storybook-out/
+
+# TypeScript
+*.tsbuildinfo
+
+# Env files
+.env
+.env.*
+!env.example
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Tests
+junit.xml
+.tap/
+
+# Monorepo tool artifacts
+pnpm-lock.yaml
+shrinkwrap.yaml
+package-lock.json
+
+# Local git cache repo
+metaverse-clean.git/
+
+# Prisma
+**/prisma/migrations/**/steps.json
+**/prisma/dev.db*
+
+# Next.js export
+out/
+
+# Images Cache
+.next/cache/images/
+
+# Misc
+*.local
