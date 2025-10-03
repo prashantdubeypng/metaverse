@@ -78,7 +78,7 @@ export class ProximityVideoCallHandler {
       this.onCallStartCallback?.(payload);
 
     } catch (error) {
-      console.error('❌ Error starting video call:', error);
+      console.error('Error starting video call:', error);
       this.onErrorCallback?.(`Failed to start call: ${error}`);
       this.cleanup();
     }
@@ -90,7 +90,7 @@ export class ProximityVideoCallHandler {
   async handleWebRTCSignaling(payload: unknown): Promise<void> {
   const signalData = payload as { callId: string; signalingData: unknown };
   if (!this.peerConnection || signalData.callId !== this.currentCallId) {
-      console.warn('⚠️ Received signaling for inactive call');
+      console.warn('Received signaling for inactive call');
       return;
     }
 
@@ -110,7 +110,7 @@ export class ProximityVideoCallHandler {
           break;
       }
     } catch (error) {
-      console.error('❌ Error handling signaling:', error);
+      console.error(' Error handling signaling:', error);
       this.onErrorCallback?.(`Signaling error: ${error}`);
     }
   }
@@ -120,7 +120,7 @@ export class ProximityVideoCallHandler {
    */
   handleVideoCallEnd(payload: unknown): void {
   const endData = payload as { reason: string };
-  console.log('🔚 Video call ended:', endData.reason);
+  console.log('Video call ended:', endData.reason);
   this.onCallEndCallback?.(endData.reason);
     this.cleanup();
   }
@@ -136,7 +136,7 @@ export class ProximityVideoCallHandler {
         audio: true
       });
 
-      console.log('📹 Local stream initialized');
+      console.log('Local stream initialized');
       this.onLocalStreamCallback?.(this.localStream);
     } catch (error) {
       throw new Error(`Failed to get user media: ${error}`);
@@ -158,7 +158,7 @@ export class ProximityVideoCallHandler {
 
     // Handle remote stream
     this.peerConnection.ontrack = (event) => {
-      console.log('📡 Remote stream received');
+      console.log('Remote stream received');
       this.remoteStream = event.streams[0];
       this.onRemoteStreamCallback?.(this.remoteStream);
     };
@@ -181,7 +181,7 @@ export class ProximityVideoCallHandler {
 
     // Handle connection state changes
     this.peerConnection.onconnectionstatechange = () => {
-      console.log('🔗 Connection state:', this.peerConnection?.connectionState);
+      console.log('Connection state:', this.peerConnection?.connectionState);
       
       if (this.peerConnection?.connectionState === 'failed' || 
           this.peerConnection?.connectionState === 'disconnected') {
@@ -228,7 +228,7 @@ export class ProximityVideoCallHandler {
         answer: answer
       });
 
-      console.log('📤 Answer sent');
+      console.log('Answer sent');
     } catch (error) {
       throw new Error(`Failed to handle offer: ${error}`);
     }
@@ -242,7 +242,7 @@ export class ProximityVideoCallHandler {
 
     try {
       await this.peerConnection.setRemoteDescription(answer);
-      console.log('✅ Answer processed');
+      console.log('Answer processed');
     } catch (error) {
       throw new Error(`Failed to handle answer: ${error}`);
     }
@@ -256,9 +256,9 @@ export class ProximityVideoCallHandler {
 
     try {
       await this.peerConnection.addIceCandidate(candidate);
-      console.log('🧊 ICE candidate added');
+      console.log('ICE candidate added');
     } catch (error) {
-      console.error('❌ Failed to add ICE candidate:', error);
+      console.error('Failed to add ICE candidate:', error);
     }
   }
 
@@ -283,7 +283,7 @@ export class ProximityVideoCallHandler {
    * Handle connection failure
    */
   private handleConnectionFailure(): void {
-    console.warn('⚠️ WebRTC connection failed');
+    console.warn('WebRTC connection failed');
     this.onErrorCallback?.('Connection failed');
     this.cleanup();
   }
@@ -337,7 +337,7 @@ export class ProximityVideoCallHandler {
    * Cleanup resources
    */
   private cleanup(): void {
-    console.log('🧹 Cleaning up video call resources');
+    console.log('Cleaning up video call resources');
 
     // Stop local stream
     if (this.localStream) {

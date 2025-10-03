@@ -124,7 +124,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       .filter(user => user.distance <= PROXIMITY_RANGE)
       .sort((a, b) => a.distance - b.distance);
 
-    console.log('📊 [PROXIMITY CHECK] Results:', {
+    console.log('[PROXIMITY CHECK] Results:', {
       totalUsers: allUsers.length,
       nearbyUsers: usersWithDistance.length,
       usersInVideoRange: usersWithDistance.filter(u => u.isInVideoCallRange).length,
@@ -189,7 +189,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
 
       // Update video call system with users in video call range
       const usersInVideoRange = usersWithDistance.filter(user => user.isInVideoCallRange);
-      console.log(`🎥 [VIDEO CALL TRIGGER] ${usersInVideoRange.length} users in video call range:`, usersInVideoRange.map(u => ({
+      console.log(`[VIDEO CALL TRIGGER] ${usersInVideoRange.length} users in video call range:`, usersInVideoRange.map(u => ({
         id: u.id,
         username: u.username,
         distance: u.distance.toFixed(1),
@@ -197,10 +197,10 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       })));
       
       if (usersInVideoRange.length > 0) {
-        console.log('📞 [VIDEO CALL] Calling handleNearbyUsers with users in range');
+        console.log('[VIDEO CALL] Calling handleNearbyUsers with users in range');
         handleNearbyUsers(usersInVideoRange);
       } else {
-        console.log('🚫 [VIDEO CALL] No users in video range, not triggering call');
+        console.log('[VIDEO CALL] No users in video range, not triggering call');
       }
 
       // Notify parent component
@@ -220,7 +220,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       const pixelY = data.y * GRID_SIZE;
       const distance = calculateDistance(currentPosition, { x: pixelX, y: pixelY });
       
-      console.log(`👤 [PROXIMITY] User ${data.username} (${data.userId}) joined at grid(${data.x}, ${data.y}) = pixel(${pixelX}, ${pixelY}), distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
+      console.log(`[PROXIMITY] User ${data.username} (${data.userId}) joined at grid(${data.x}, ${data.y}) = pixel(${pixelX}, ${pixelY}), distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
       
       if (distance <= PROXIMITY_RANGE) {
         setNearbyUsers(prev => {
@@ -246,7 +246,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
             };
             
             if (distance <= VIDEO_CALL_RANGE) {
-              console.log(`🎥 [VIDEO RANGE] New user ${data.username} is within video call range! Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
+              console.log(`[VIDEO RANGE] New user ${data.username} is within video call range! Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
             }
             
             return [...prev, newUser].sort((a, b) => a.distance - b.distance);
@@ -271,12 +271,12 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       const pixelY = data.y * GRID_SIZE;
       const distance = calculateDistance(currentPosition, { x: pixelX, y: pixelY });
 
-      console.log(`🎯 [PROXIMITY] User ${data.userId} moved to grid(${data.x}, ${data.y}) = pixel(${pixelX}, ${pixelY}), distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
+      console.log(`[PROXIMITY] User ${data.userId} moved to grid(${data.x}, ${data.y}) = pixel(${pixelX}, ${pixelY}), distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
 
       setNearbyUsers(prev => {
         if (distance > PROXIMITY_RANGE) {
           // User moved out of proximity range
-          console.log(`🚫 [PROXIMITY] User ${data.userId} moved out of proximity range (${distance.toFixed(1)}px > ${PROXIMITY_RANGE}px)`);
+          console.log(`[PROXIMITY] User ${data.userId} moved out of proximity range (${distance.toFixed(1)}px > ${PROXIMITY_RANGE}px)`);
           return prev.filter(u => u.id !== data.userId);
         } else {
           // Update user position
@@ -286,9 +286,9 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
             const nowInVideoRange = distance <= VIDEO_CALL_RANGE;
             
             if (!wasInVideoRange && nowInVideoRange) {
-              console.log(`🎥 [VIDEO RANGE] User ${data.userId} entered video call range! Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
+              console.log(` [VIDEO RANGE] User ${data.userId} entered video call range! Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
             } else if (wasInVideoRange && !nowInVideoRange) {
-              console.log(`📤 [VIDEO RANGE] User ${data.userId} left video call range. Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
+              console.log(` [VIDEO RANGE] User ${data.userId} left video call range. Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
             }
             
             return prev.map(u => u.id === data.userId ? {
@@ -299,7 +299,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
               isInVideoCallRange: distance <= VIDEO_CALL_RANGE,
             } : u).sort((a, b) => a.distance - b.distance);
           } else if (distance <= PROXIMITY_RANGE) {
-            console.log(`👋 [PROXIMITY] New user ${data.userId} detected in proximity range! Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
+            console.log(` [PROXIMITY] New user ${data.userId} detected in proximity range! Distance: ${distance.toFixed(1)}px (${(distance/GRID_SIZE).toFixed(1)} tiles)`);
             const newUser: NearbyUser = {
               id: data.userId,
               username: `User_${data.userId.slice(0, 8)}`, // We'll get the real username from other events
@@ -356,10 +356,10 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
    */
   useEffect(() => {
     const usersInVideoRange = nearbyUsers.filter(u => u.isInVideoCallRange);
-    console.log(`🔄 [VIDEO TRIGGER] Nearby users updated: ${nearbyUsers.length} total, ${usersInVideoRange.length} in video range`);
+    console.log(`[VIDEO TRIGGER] Nearby users updated: ${nearbyUsers.length} total, ${usersInVideoRange.length} in video range`);
     
     if (usersInVideoRange.length > 0) {
-      console.log('🎥 [TRIGGERING VIDEO] Users in video call range:', usersInVideoRange.map(u => ({
+      console.log('[TRIGGERING VIDEO] Users in video call range:', usersInVideoRange.map(u => ({
         id: u.id,
         username: u.username,
         distance: u.distance.toFixed(1) + 'px',
@@ -380,7 +380,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       const usersInProximity = nearbyUsers.filter(u => !u.isInVideoCallRange);
       
       if (usersInVideoRange.length > 0) {
-        console.log('🎥 Users in video call range (≤2 tiles):', usersInVideoRange.map(u => ({
+        console.log(' Users in video call range (≤2 tiles):', usersInVideoRange.map(u => ({
           username: u.username,
           distancePixels: u.distance.toFixed(1),
           distanceTiles: (u.distance / GRID_SIZE).toFixed(1)
@@ -388,7 +388,7 @@ const ProximityManager: React.FC<ProximityManagerProps> = ({
       }
       
       if (usersInProximity.length > 0) {
-        console.log('👥 Users in proximity (>2 tiles, ≤10 tiles):', usersInProximity.map(u => ({
+        console.log(' Users in proximity (>2 tiles, ≤10 tiles):', usersInProximity.map(u => ({
           username: u.username,
           distancePixels: u.distance.toFixed(1),
           distanceTiles: (u.distance / GRID_SIZE).toFixed(1)

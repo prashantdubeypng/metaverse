@@ -59,7 +59,7 @@ export class VideoCallHandler {
 
   // Called when backend starts a proximity-based video call
   private async handleCallStart(payload: unknown): Promise<void> {
-    console.log('🎥 Video call starting:', payload);
+    console.log('Video call starting:', payload);
   const callData = payload as { callId: string; participants: unknown[] };
   this.currentCallId = callData.callId;
     this.isInCall = true;
@@ -91,7 +91,7 @@ export class VideoCallHandler {
       // Show video call UI
       this.showVideoCallUI(otherParticipant);
     } catch (error) {
-      console.error('❌ Error starting video call:', error);
+      console.error('Error starting video call:', error);
       this.endCall();
     }
   }
@@ -118,7 +118,7 @@ export class VideoCallHandler {
         break;
     }
   } catch (error) {
-    console.error('❌ Error handling signaling:', error);
+    console.error(' Error handling signaling:', error);
   }
   }
 
@@ -146,7 +146,7 @@ export class VideoCallHandler {
   // Handle call end
   private handleCallEnd(payload: unknown): void {
   const endData = payload as { reason: string };
-  console.log('🎥 Video call ended:', endData.reason);
+  console.log('Video call ended:', endData.reason);
     this.endCall();
   }
 
@@ -154,7 +154,7 @@ export class VideoCallHandler {
   private handleUsersInCall(payload: unknown): void {
     // Update UI to show which users are in video calls
   const usersData = payload as { userIds: string[] };
-  console.log('👥 Users in video calls:', usersData.userIds);
+  console.log('Users in video calls:', usersData.userIds);
   }
 
   // Start local media (camera/microphone)
@@ -176,9 +176,9 @@ export class VideoCallHandler {
         this.localVideo.srcObject = this.localStream;
       }
 
-      console.log('✅ Local media started');
+      console.log('Local media started');
     } catch (error) {
-      console.error('❌ Error accessing media devices:', error);
+      console.error('Error accessing media devices:', error);
       throw error;
     }
   }
@@ -196,7 +196,7 @@ export class VideoCallHandler {
 
     // Handle remote stream
     this.peerConnection.ontrack = (event) => {
-      console.log('📺 Received remote stream');
+      console.log('Received remote stream');
       this.remoteStream = event.streams[0];
       if (this.remoteVideo) {
         this.remoteVideo.srcObject = this.remoteStream;
@@ -215,11 +215,11 @@ export class VideoCallHandler {
 
     // Handle connection state changes
     this.peerConnection.onconnectionstatechange = () => {
-      console.log('🔗 Connection state:', this.peerConnection!.connectionState);
+      console.log('Connection state:', this.peerConnection!.connectionState);
       if (this.peerConnection!.connectionState === 'connected') {
-        console.log('✅ Video call connected!');
+        console.log('Video call connected!');
       } else if (this.peerConnection!.connectionState === 'failed') {
-        console.log('❌ Video call connection failed');
+        console.log('Video call connection failed');
         this.endCall();
       }
     };
@@ -235,7 +235,7 @@ export class VideoCallHandler {
 
   // End the current call
   public endCall(): void {
-    console.log('🔚 Ending video call');
+    console.log('Ending video call');
 
     // Send end call message to backend
     if (this.currentCallId) {
@@ -280,7 +280,7 @@ export class VideoCallHandler {
       const audioTrack = this.localStream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        console.log('🔇 Audio muted:', !audioTrack.enabled);
+        console.log(' Audio muted:', !audioTrack.enabled);
         return !audioTrack.enabled;
       }
     }
@@ -293,7 +293,7 @@ export class VideoCallHandler {
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
-        console.log('📹 Video disabled:', !videoTrack.enabled);
+        console.log('Video disabled:', !videoTrack.enabled);
         return !videoTrack.enabled;
       }
     }
@@ -304,7 +304,7 @@ export class VideoCallHandler {
   private showVideoCallUI(otherParticipant: unknown): void {
     // Create or show your video call UI elements
   const participant = otherParticipant as { username: string };
-  console.log('🎬 Showing video call UI for:', participant.username);
+  console.log('Showing video call UI for:', participant.username);
     
     // Example: Create video elements if they don't exist
     if (!this.localVideo) {
@@ -320,7 +320,7 @@ export class VideoCallHandler {
 
   // Hide video call UI
   private hideVideoCallUI(): void {
-    console.log('🎬 Hiding video call UI');
+    console.log('Hiding video call UI');
     const videoContainer = document.getElementById('video-call-container');
     if (videoContainer) {
       videoContainer.style.display = 'none';

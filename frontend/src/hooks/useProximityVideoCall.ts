@@ -45,6 +45,12 @@ export function useProximityVideoCall() {
     const callState = proximityVideoCallManager.getState();
     const participants = proximityVideoCallManager.getParticipants();
 
+    console.log('[UPDATE STATE] Service state:', {
+      isActive: callState.isActive,
+      participantsCount: participants.length,
+      hasLocalStream: !!callState.localStream
+    });
+
     const participantInfo: ParticipantInfo[] = participants.map(p => ({
       userId: p.userId,
       username: p.username,
@@ -69,14 +75,21 @@ export function useProximityVideoCall() {
           return newP && prevP.userId === newP.userId && 
                  prevP.isAudioEnabled === newP.isAudioEnabled &&
                  prevP.isVideoEnabled === newP.isVideoEnabled &&
-                 prevP.connectionState === newP.connectionState;
+                 prevP.connectionState === newP.connectionState &&
+                 prevP.stream === newP.stream; // trigger update when stream attaches
         });
+
+      console.log('[UPDATE STATE] State comparison:', {
+        prevIsCallActive: prev.isCallActive,
+        newIsCallActive: callState.isActive,
+        hasChanged
+      });
 
       if (!hasChanged) {
         return prev;
       }
 
-      return {
+      const newState = {
         ...prev,
         isCallActive: callState.isActive,
         participants: participantInfo,
@@ -85,6 +98,13 @@ export function useProximityVideoCall() {
         isCameraOff: callState.isCameraOff,
         isScreenSharing: callState.isScreenSharing,
       };
+
+      console.log('[UPDATE STATE] New state:', {
+        isCallActive: newState.isCallActive,
+        participantsCount: newState.participants.length
+      });
+
+      return newState;
     });
   }, []);
 
@@ -204,9 +224,20 @@ export function useProximityVideoCall() {
     const manager = proximityVideoCallManager;
 
     // Call state events
-    manager.on('initialized', updateState);
-    manager.on('proximity-call-started', updateState);
-    manager.on('call-ended', updateState);
+    manager.on('initialized', () => {
+      console.log('[HOOK] Received initialized event');
+      updateState();
+    });
+    
+    manager.on('proximity-call-started', (data: { callId: string }) => {
+      console.log('[HOOK] Received proximity-call-started event:', data);
+      updateState();
+    });
+    
+    manager.on('call-ended', () => {
+      console.log('[HOOK] Received call-ended event');
+      updateState();
+    });
 
     // Participant events
     manager.on('participant-connecting', (data: { userId: string; username: string }) => {

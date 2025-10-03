@@ -23,6 +23,14 @@ const VideoStream: React.FC<VideoStreamProps> = ({
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      // Attempt programmatic play to avoid autoplay policy issues
+      // Mute is applied to allow autoplay across browsers
+      const v = videoRef.current;
+      // Ensure muted to satisfy autoplay; local is already muted, also mute remote for reliability
+      v.muted = true;
+      v.play().catch((err) => {
+        console.warn('Video autoplay was blocked:', err);
+      });
     }
   }, [stream]);
 
@@ -33,7 +41,7 @@ const VideoStream: React.FC<VideoStreamProps> = ({
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isLocal} // Always mute local video to prevent feedback
+          muted={true} // Mute to satisfy autoplay; we can add speaker controls later
           className="w-full h-full object-cover"
         />
       ) : (
@@ -99,7 +107,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
     error,
     toggleMute,
     toggleCamera,
-    toggleScreenShare,
+    toggleScreenShare: _toggleScreenShare,
     endCall,
     clearError,
     initialize,
@@ -116,6 +124,17 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const windowRef = useRef<HTMLDivElement>(null);
+
+  // Window pixel sizes (to keep right edge anchored)
+  const getWindowPixelWidth = useCallback(() => {
+    if (isMinimized) return 288; // ~w-72
+    return isExpanded ? 760 : 560; // arbitrary sizes tuned for 2 side-by-side videos
+  }, [isMinimized, isExpanded]);
+
+  const getWindowPixelHeight = useCallback(() => {
+    if (isMinimized) return 48; // ~h-12
+    return isExpanded ? 420 : 280;
+  }, [isMinimized, isExpanded]);
 
   // Initialize video call manager
   useEffect(() => {
@@ -161,12 +180,13 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
   // Initialize window position (right side of screen)
   useEffect(() => {
     if (isCallActive && position.x === 0 && position.y === 0) {
+      const width = getWindowPixelWidth();
       setPosition({
-        x: window.innerWidth - 320, // 320px from right edge
+        x: Math.max(0, window.innerWidth - width - 16), // 16px margin from right
         y: 100 // 100px from top
       });
     }
-  }, [isCallActive, position.x, position.y]);
+  }, [isCallActive, position.x, position.y, getWindowPixelWidth]);
 
   // Dragging handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -182,12 +202,14 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging) {
+      const width = windowRef.current?.offsetWidth ?? getWindowPixelWidth();
+      const height = windowRef.current?.offsetHeight ?? getWindowPixelHeight();
       setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - 300, e.clientX - dragOffset.x)),
-        y: Math.max(0, Math.min(window.innerHeight - 200, e.clientY - dragOffset.y))
+        x: Math.max(0, Math.min(window.innerWidth - width, e.clientX - dragOffset.x)),
+        y: Math.max(0, Math.min(window.innerHeight - height, e.clientY - dragOffset.y))
       });
     }
-  }, [isDragging, dragOffset]);
+  }, [isDragging, dragOffset, getWindowPixelWidth, getWindowPixelHeight]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -207,7 +229,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
 
   // Debug logging
   useEffect(() => {
-    console.log('🎥 [ProximityVideoCallUI] State update:', {
+    console.log('[ProximityVideoCallUI] State update:', {
       isCallActive,
       participantsCount: participants.length,
       hasLocalStream: !!localStream,
@@ -225,28 +247,15 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
     
     const totalParticipants = participants.length + (localStream ? 1 : 0);
 
-    if (isExpanded) {
-      if (totalParticipants <= 2) {
-        return 'grid-cols-1 md:grid-cols-2';
-      } else if (totalParticipants <= 4) {
-        return 'grid-cols-2';
-      } else {
-        return 'grid-cols-3';
-      }
-    } else {
-      // Compact mode - single column
-      return 'grid-cols-1';
-    }
+    // Always show two side-by-side when there are at least two streams
+    if (totalParticipants >= 2) return 'grid-cols-2';
+    return 'grid-cols-1';
   };
 
   const getWindowSize = () => {
-    if (isMinimized) {
-      return 'w-64 h-12';
-    } else if (isExpanded) {
-      return 'w-96 h-80';
-    } else {
-      return 'w-80 h-64'; // Default compact size
-    }
+    if (isMinimized) return 'w-72 h-12';
+    // Arbitrary pixel sizes using Tailwind arbitrary values
+    return isExpanded ? 'w-[760px] h-[420px]' : 'w-[560px] h-[280px]';
   };
 
   return (
@@ -319,7 +328,18 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
               {/* Expand/Compact button */}
               {!isMinimized && (
                 <button
-                  onClick={() => setIsExpanded(!isExpanded)}
+                  onClick={() => {
+                    // Keep right edge anchored when toggling size
+                    const prevWidth = getWindowPixelWidth();
+                    const nextExpanded = !isExpanded;
+                    const nextWidth = nextExpanded ? 760 : 560;
+                    const delta = prevWidth - nextWidth; // positive if shrinking
+                    setIsExpanded(nextExpanded);
+                    setPosition(prev => ({
+                      x: Math.max(0, prev.x + delta),
+                      y: prev.y
+                    }));
+                  }}
                   className="w-5 h-5 rounded hover:bg-gray-600 flex items-center justify-center transition-colors"
                   title={isExpanded ? 'Compact' : 'Expand'}
                 >
@@ -344,7 +364,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
       {/* Video grid */}
       {!isMinimized && (
         <div className="p-3">
-          <div className={`grid gap-2 ${getVideoLayout()}`}>
+          <div className={`grid gap-3 ${getVideoLayout()}`}>
             {/* Local video (always first) */}
             {localStream && (
               <VideoStream
@@ -353,7 +373,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
                 username={username}
                 isMuted={isMuted}
                 isVideoOff={isCameraOff}
-                className={`aspect-video ${isExpanded ? 'h-40' : 'h-24'}`}
+                className={`aspect-video ${isExpanded ? 'h-[300px]' : 'h-[160px]'}`}
               />
             )}
 
@@ -365,7 +385,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
                 username={participant.username}
                 isMuted={!participant.isAudioEnabled}
                 isVideoOff={!participant.isVideoEnabled}
-                className={`aspect-video ${isExpanded ? 'h-40' : 'h-24'}`}
+                className={`aspect-video ${isExpanded ? 'h-[300px]' : 'h-[160px]'}`}
               />
             ))}
           </div>

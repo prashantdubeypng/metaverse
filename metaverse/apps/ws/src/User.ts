@@ -26,6 +26,7 @@ export class User {
     private y: number;
     private isAlive: boolean = true;
     private activeChatrooms: Set<string> = new Set();
+    private heartbeatTimer?: NodeJS.Timeout; // Timer to keep user alive in Redis
     private redisService: RedisService;
     private kafkaService: KafkaChatService;
     private videoCallManager: VideoCallManager;
@@ -71,97 +72,97 @@ export class User {
     }
 
     private async handleMessage(parseData: IncomingMessage): Promise<void> {
-        console.log(`📨 [MESSAGE RECEIVED] User ${this.username || this.id} sent message type: ${parseData.type}`, parseData.payload);
+        console.log(`[MESSAGE RECEIVED] User ${this.username || this.id} sent message type: ${parseData.type}`, parseData.payload);
 
         switch (parseData.type) {
             case 'join':
                 await this.handleJoin(parseData.payload as JoinPayload);
                 break;
             case 'move':
-                console.log(`🚶 [MOVE MESSAGE] Processing move request for ${this.username || this.id}`);
+                console.log(`[MOVE MESSAGE] Processing move request for ${this.username || this.id}`);
                 await this.handleMove(parseData.payload as MovePayload);
                 break;
             case 'leave':
-                console.log(`👋 [LEAVE MESSAGE] Processing leave request for ${this.username || this.id}`);
+                console.log(`[LEAVE MESSAGE] Processing leave request for ${this.username || this.id}`);
                 this.handleLeave();
                 break;
             case 'chat-join':
-                console.log(`💬 [CHAT JOIN] Processing chat join for ${this.username || this.id}`);
+                console.log(`[CHAT JOIN] Processing chat join for ${this.username || this.id}`);
                 await this.handleChatJoin(parseData.payload);
                 break;
             case 'chat-message':
-                console.log(`💬 [CHAT MESSAGE] Processing chat message from ${this.username || this.id}`);
+                console.log(`[CHAT MESSAGE] Processing chat message from ${this.username || this.id}`);
                 await this.handleChatMessage(parseData.payload);
                 break;
             case 'chat-leave':
-                console.log(`💬 [CHAT LEAVE] Processing chat leave for ${this.username || this.id}`);
+                console.log(`[CHAT LEAVE] Processing chat leave for ${this.username || this.id}`);
                 await this.handleChatLeave(parseData.payload);
                 break;
             case 'video-call-signaling':
-                console.log(`🎥 [VIDEO SIGNALING] Processing WebRTC signaling from ${this.username || this.id}`);
+                console.log(`[VIDEO SIGNALING] Processing WebRTC signaling from ${this.username || this.id}`);
                 this.handleVideoSignaling(parseData.payload);
                 break;
             case 'video-call-end':
-                console.log(`🎥 [VIDEO END] Processing video call end from ${this.username || this.id}`);
+                console.log(`[VIDEO END] Processing video call end from ${this.username || this.id}`);
                 this.handleVideoCallEnd(parseData.payload);
                 break;
             case 'proximity-video-call-signal':
-                console.log(`🎥 [PROXIMITY SIGNALING] Processing proximity video signal from ${this.username || this.id}`);
+                console.log(`[PROXIMITY SIGNALING] Processing proximity video signal from ${this.username || this.id}`);
                 this.handleProximityVideoSignaling(parseData.payload);
                 break;
             case 'proximity-position-update':
-                console.log(`📍 [PROXIMITY POSITION] Processing position update from ${this.username || this.id}`);
+                console.log(`[PROXIMITY POSITION] Processing position update from ${this.username || this.id}`);
                 this.handleProximityPositionUpdate(parseData.payload);
                 break;
             case 'proximity-video-call-ended':
-                console.log(`🎥 [PROXIMITY END] Processing proximity call end from ${this.username || this.id}`);
+                console.log(`[PROXIMITY END] Processing proximity call end from ${this.username || this.id}`);
                 this.handleProximityVideoCallEnd(parseData.payload);
                 break;
             case 'proximity-heartbeat':
-                console.log(`💓 [PROXIMITY HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
+                console.log(`[PROXIMITY HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
                 this.handleProximityHeartbeat(parseData.payload);
                 break;
             case 'authenticate':
-                console.log(`🔐 [AUTHENTICATE] Processing authentication from connection ${this.id}`);
+                console.log(`[AUTHENTICATE] Processing authentication from connection ${this.id}`);
                 await this.handleAuthenticate(parseData);
                 break;
             case 'heartbeat':
-                console.log(`💓 [HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
+                console.log(`[HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
                 this.handleHeartbeat(parseData.payload);
                 break;
             case 'heartbeat-response':
-                console.log(`💓 [HEARTBEAT RESPONSE] Received heartbeat response from ${this.username || this.id}`);
+                console.log(`[HEARTBEAT RESPONSE] Received heartbeat response from ${this.username || this.id}`);
                 // Just acknowledge - no action needed
                 break;
             case 'proximity-video-call-signal':
-                console.log(`🎥 [PROXIMITY SIGNALING] Processing proximity WebRTC signaling from ${this.username || this.id}`);
+                console.log(`[PROXIMITY SIGNALING] Processing proximity WebRTC signaling from ${this.username || this.id}`);
                 this.handleProximityVideoSignaling(parseData.payload);
                 break;
             case 'proximity-position-update':
-                console.log(`📍 [PROXIMITY POSITION] Processing position update from ${this.username || this.id}`);
+                console.log(`[PROXIMITY POSITION] Processing position update from ${this.username || this.id}`);
                 this.handleProximityPositionUpdate(parseData.payload);
                 break;
             case 'proximity-video-call-ended':
-                console.log(`🎥 [PROXIMITY END] Processing proximity video call end from ${this.username || this.id}`);
+                console.log(` [PROXIMITY END] Processing proximity video call end from ${this.username || this.id}`);
                 this.handleProximityVideoCallEnd(parseData.payload);
                 break;
             case 'proximity-heartbeat':
-                console.log(`💓 [PROXIMITY HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
+                console.log(`[PROXIMITY HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
                 this.handleProximityHeartbeat(parseData.payload);
                 break;
             case 'authenticate':
-                console.log(`🔐 [AUTH] Processing authentication from connection ${this.id}`);
+                console.log(`[AUTH] Processing authentication from connection ${this.id}`);
                 await this.handleAuthenticate(parseData);
                 break;
             case 'heartbeat':
-                console.log(`💓 [HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
+                console.log(` [HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
                 this.handleHeartbeat(parseData.payload);
                 break;
             case 'heartbeat-response':
-                console.log(`💓 [HEARTBEAT RESPONSE] Received heartbeat response from ${this.username || this.id}`);
+                console.log(` [HEARTBEAT RESPONSE] Received heartbeat response from ${this.username || this.id}`);
                 break;
             default:
-                console.log(`❓ [UNKNOWN MESSAGE] Invalid message type: ${parseData.type} from ${this.username || this.id}`);
+                console.log(` [UNKNOWN MESSAGE] Invalid message type: ${parseData.type} from ${this.username || this.id}`);
                 this.send({
                     type: 'error',
                     payload: { message: 'Invalid message type' }
@@ -173,27 +174,27 @@ export class User {
     private async handleJoin(payload: JoinPayload): Promise<void> {
         const { spaceId, token } = payload;
         
-        console.log(`🔐 [AUTH] Processing join request for space: ${spaceId}`);
-        console.log(`🔑 [AUTH] Token provided: ${token ? 'Yes' : 'No'}`);
+        console.log(` [AUTH] Processing join request for space: ${spaceId}`);
+        console.log(` [AUTH] Token provided: ${token ? 'Yes' : 'No'}`);
 
         if (!token) {
-            console.log('❌ [AUTH] No token provided');
+            console.log(' [AUTH] No token provided');
             this.ws.close(1008, 'No token provided');
             return;
         }
 
         try {
-            console.log(`🔍 [AUTH] Verifying JWT token with secret: ${jwt_password.substring(0, 5)}...`);
+            console.log(` [AUTH] Verifying JWT token with secret: ${jwt_password.substring(0, 5)}...`);
             
             // Verify JWT token
             const decoded = jwt.verify(token, jwt_password) as JwtPayload;
             const userId = decoded.userId;
             const username = decoded.username;
             
-            console.log(`✅ [AUTH] Token verified successfully. UserId: ${userId}, Username: ${username}`);
+            console.log(` [AUTH] Token verified successfully. UserId: ${userId}, Username: ${username}`);
 
             if (!userId || !username) {
-                console.log(`❌ [AUTH] Missing user data in token. UserId: ${userId}, Username: ${username}`);
+                console.log(` [AUTH] Missing user data in token. UserId: ${userId}, Username: ${username}`);
                 this.ws.close(1008, 'Invalid token - missing user data');
                 return;
             }
@@ -201,7 +202,7 @@ export class User {
             this.userId = userId;
             this.username = username;
             
-            console.log(`🏢 [SPACE] Checking if space exists: ${spaceId}`);
+            console.log(` [SPACE] Checking if space exists: ${spaceId}`);
 
             // Verify space exists
             const space = await client.space.findFirst({
@@ -209,12 +210,12 @@ export class User {
             });
 
             if (!space) {
-                console.log(`❌ [SPACE] Space not found: ${spaceId}`);
+                console.log(` [SPACE] Space not found: ${spaceId}`);
                 this.ws.close(1008, 'Space not found');
                 return;
             }
             
-            console.log(`✅ [SPACE] Space found: ${space.name} (${space.id}) - Dimensions: ${space.width}x${space.height}`);
+            console.log(` [SPACE] Space found: ${space.name} (${space.id}) - Dimensions: ${space.width}x${space.height}`);
 
             this.spaceId = spaceId;
             
@@ -230,17 +231,22 @@ export class User {
             this.x = Math.min(spawnX, maxGridX);
             this.y = Math.min(spawnY, maxGridY);
 
-            console.log(`🎯 [SPAWN] User ${username} (#${currentUserCount}) spawned at fixed grid position (${this.x}, ${this.y}) in space ${spaceId} with boundaries ${maxGridX}x${maxGridY}`);
+            console.log(` [SPAWN] User ${username} (#${currentUserCount}) spawned at fixed grid position (${this.x}, ${this.y}) in space ${spaceId} with boundaries ${maxGridX}x${maxGridY}`);
 
             // Add user to room manager (now async for Redis)
             await Roommanager.getInstance().addUser(spaceId, this);
 
-            // Broadcast user joined to others
+            // Broadcast user joined to others (send grid coordinates)
+            console.log(` [BROADCAST] Broadcasting user-joined-space for ${this.username} to other users`);
             Roommanager.getInstance().broadCast({
                 type: 'user-joined-space',
                 payload: {
                     userId: this.userId,
                     username: this.username,
+                    spawn: {
+                        x: this.x,
+                        y: this.y
+                    },
                     x: this.x,
                     y: this.y,
                 }
@@ -249,6 +255,8 @@ export class User {
             // Get users from both memory AND Redis (for reconnection resilience)
             const currentUsers = Roommanager.getInstance().getSpaceUsers(spaceId);
             const redisUsers = await Roommanager.getInstance().getUsersFromRedis(spaceId);
+            
+            console.log(`[USER COUNT] Found ${currentUsers.length} users in memory, ${redisUsers.length} users in Redis`);
             
             // Merge users from memory and Redis, removing duplicates
             const userMap = new Map<string, any>();
@@ -284,7 +292,7 @@ export class User {
             
             const allUsers = Array.from(userMap.values());
             
-            console.log(`📊 [SPACE JOIN] Sending ${allUsers.length} users to ${username}: ${currentUsers.length} from memory, ${redisUsers.length} from Redis`);
+            console.log(` [SPACE JOIN] Sending ${allUsers.length} users to ${username}: ${currentUsers.length} from memory, ${redisUsers.length} from Redis`);
             
             // Send join confirmation with merged user list
             this.send({
@@ -300,28 +308,60 @@ export class User {
 
             console.log(`User ${this.username} (${this.userId}) joined space ${spaceId} at position (${this.x}, ${this.y})`);
 
+            // Start heartbeat to keep user alive in Redis (refresh every 1 second with 2 second expiry)
+            this.startHeartbeat();
+
         } catch (error) {
-            console.error('❌ [AUTH ERROR] Error during join:', error);
+            console.error('[AUTH ERROR] Error during join:', error);
             
             // Provide more specific error messages
             if (error instanceof jwt.JsonWebTokenError) {
-                console.error('❌ [JWT ERROR] Invalid JWT token:', error.message);
+                console.error(' [JWT ERROR] Invalid JWT token:', error.message);
                 this.ws.close(1008, `JWT Error: ${error.message}`);
             } else if (error instanceof jwt.TokenExpiredError) {
-                console.error('❌ [JWT ERROR] Token expired:', error.message);
+                console.error(' [JWT ERROR] Token expired:', error.message);
                 this.ws.close(1008, 'Token expired');
             } else {
-                console.error('❌ [AUTH ERROR] General authentication error:', error);
+                console.error(' [AUTH ERROR] General authentication error:', error);
                 this.ws.close(1008, 'Authentication failed');
             }
         }
     }
 
+    // Start heartbeat to keep user alive in Redis
+    private startHeartbeat(): void {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+        }
+        
+        // Refresh Redis expiry every 1 second (with 2 second expiry this gives us 1 second buffer)
+        this.heartbeatTimer = setInterval(async () => {
+            if (this.spaceId && this.userId && this.isAlive) {
+                try {
+                    await this.redisService.refreshUserExpiry(this.spaceId, this.userId);
+                } catch (error) {
+                    console.error(` [HEARTBEAT ERROR] Failed to refresh expiry for user ${this.userId}:`, error);
+                }
+            }
+        }, 1000); // 1 second interval
+        
+        console.log(` [HEARTBEAT] Started heartbeat for user ${this.username} (${this.userId})`);
+    }
+
+    // Stop heartbeat
+    private stopHeartbeat(): void {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = undefined;
+            console.log(` [HEARTBEAT] Stopped heartbeat for user ${this.username} (${this.userId})`);
+        }
+    }
+
     private async handleMove(payload: MovePayload): Promise<void> {
-        console.log(`🎮 [MOVE REQUEST] User ${this.username} (${this.userId}) wants to move from (${this.x}, ${this.y}) to (${payload.x}, ${payload.y})`);
+        console.log(` [MOVE REQUEST] User ${this.username} (${this.userId}) wants to move from (${this.x}, ${this.y}) to (${payload.x}, ${payload.y})`);
 
         if (!this.spaceId || !this.userId) {
-            console.log(`❌ [MOVE ERROR] User ${this.id} not in a space`);
+            console.log(` [MOVE ERROR] User ${this.id} not in a space`);
             this.send({
                 type: 'error',
                 payload: { message: 'Not in a space' }
@@ -335,7 +375,7 @@ export class User {
         });
 
         if (!space) {
-            console.log(`❌ [MOVE ERROR] Space not found: ${this.spaceId}`);
+            console.log(` [MOVE ERROR] Space not found: ${this.spaceId}`);
             this.send({
                 type: 'error',
                 payload: { message: 'Space not found' }
@@ -349,11 +389,11 @@ export class User {
         const maxGridX = Math.floor((space.width || 800) / 20) - 1;
         const maxGridY = Math.floor((space.height || 600) / 20) - 1;
         
-        console.log(`🏢 [SPACE BOUNDS] Space ${this.spaceId} boundaries: (0,0) to (${maxGridX}, ${maxGridY})`);
+        console.log(` [SPACE BOUNDS] Space ${this.spaceId} boundaries: (0,0) to (${maxGridX}, ${maxGridY})`);
         
         // Enforce space boundaries
         if (moveX < 0 || moveX > maxGridX || moveY < 0 || moveY > maxGridY) {
-            console.log(`❌ [MOVE REJECTED] Out of bounds: (${moveX}, ${moveY}) - Valid range: (0,0) to (${maxGridX}, ${maxGridY})`);
+            console.log(` [MOVE REJECTED] Out of bounds: (${moveX}, ${moveY}) - Valid range: (0,0) to (${maxGridX}, ${maxGridY})`);
             this.send({
                 type: 'move-rejected',
                 payload: {
@@ -370,14 +410,14 @@ export class User {
         const xDisplacement = Math.abs(this.x - moveX);
         const yDisplacement = Math.abs(this.y - moveY);
 
-        console.log(`📏 [MOVE VALIDATION] Displacement: X=${xDisplacement}, Y=${yDisplacement}`);
+        console.log(` [MOVE VALIDATION] Displacement: X=${xDisplacement}, Y=${yDisplacement}`);
 
         // Allow more flexible movement - not just 1 step at a time
         // But still validate it's a reasonable movement (prevent teleporting)
         const maxMovement = 5; // Allow up to 5 grid units movement per request
         if (xDisplacement <= maxMovement && yDisplacement <= maxMovement) {
 
-            console.log(`✅ [MOVE VALID] Movement approved for ${this.username}`);
+            console.log(` [MOVE VALID] Movement approved for ${this.username}`);
 
             // Update position
             this.x = moveX;
@@ -389,7 +429,7 @@ export class User {
             }
 
             // Send movement confirmation to the user
-            console.log(`📤 [MOVE CONFIRM] Sending confirmation to ${this.username}`);
+            console.log(` [MOVE CONFIRM] Sending confirmation to ${this.username}`);
             this.send({
                 type: 'user-moved',
                 payload: {
@@ -402,7 +442,7 @@ export class User {
 
             // Broadcast movement to others
             const otherUsersCount = Roommanager.getInstance().getUserCount(this.spaceId) - 1;
-            console.log(`📡 [MOVE BROADCAST] Broadcasting to ${otherUsersCount} other users in space ${this.spaceId}`);
+            console.log(` [MOVE BROADCAST] Broadcasting to ${otherUsersCount} other users in space ${this.spaceId}`);
             Roommanager.getInstance().broadCast({
                 type: 'user-moved',
                 payload: {
@@ -413,14 +453,14 @@ export class User {
                 }
             }, this, this.spaceId);
 
-            console.log(`🎯 [MOVE SUCCESS] User ${this.username} (${this.userId}) moved to (${moveX}, ${moveY})`);
+            console.log(` [MOVE SUCCESS] User ${this.username} (${this.userId}) moved to (${moveX}, ${moveY})`);
             
             // Check for proximity-based video calls after movement
             this.videoCallManager.handleUserMovement(this);
         } else {
             // Reject invalid movement
-            console.log(`❌ [MOVE REJECTED] Invalid movement for ${this.username}: displacement X=${xDisplacement}, Y=${yDisplacement} (max allowed: ${maxMovement})`);
-            console.log(`📤 [MOVE REJECT] Sending rejection to ${this.username}, keeping position (${this.x}, ${this.y})`);
+            console.log(`[MOVE REJECTED] Invalid movement for ${this.username}: displacement X=${xDisplacement}, Y=${yDisplacement} (max allowed: ${maxMovement})`);
+            console.log(`[MOVE REJECT] Sending rejection to ${this.username}, keeping position (${this.x}, ${this.y})`);
 
             this.send({
                 type: 'move-rejected',
@@ -524,7 +564,7 @@ export class User {
             return;
         }
 
-        console.log(`🎥 [PROXIMITY SIGNALING] Relaying signal from ${this.username} to ${payload.targetUserId}`);
+        console.log(`[PROXIMITY SIGNALING] Relaying signal from ${this.username} to ${payload.targetUserId}`);
         
         // Find target user and relay the signal
         if (this.spaceId && payload.targetUserId) {
@@ -541,7 +581,7 @@ export class User {
                     }
                 });
             } else {
-                console.log(`🎥 [PROXIMITY SIGNALING] Target user ${payload.targetUserId} not found in space`);
+                console.log(` [PROXIMITY SIGNALING] Target user ${payload.targetUserId} not found in space`);
             }
         }
     }
@@ -557,7 +597,7 @@ export class User {
             this.y = y;
         }
 
-        console.log(`📍 [PROXIMITY POSITION] User ${this.username} updated position to (${this.x}, ${this.y})`);
+        console.log(`[PROXIMITY POSITION] User ${this.username} updated position to (${this.x}, ${this.y})`);
 
         // Check for proximity video call updates
         this.videoCallManager.handleUserMovement(this);
@@ -580,7 +620,7 @@ export class User {
 
         const { targetUserId, reason } = payload;
         
-        console.log(`🎥 [PROXIMITY END] User ${this.username} ending proximity call with ${targetUserId}, reason: ${reason}`);
+        console.log(`[PROXIMITY END] User ${this.username} ending proximity call with ${targetUserId}, reason: ${reason}`);
 
         // Notify target user that call ended
         if (this.spaceId && targetUserId) {
@@ -670,7 +710,7 @@ export class User {
             this.userId = userId;
             this.username = user.username;
 
-            console.log(`✅ [AUTH] User ${this.username} (${this.userId}) authenticated on connection ${this.id}`);
+            console.log(`[AUTH] User ${this.username} (${this.userId}) authenticated on connection ${this.id}`);
 
             // Send success response
             this.send({
@@ -682,7 +722,7 @@ export class User {
             });
 
         } catch (error) {
-            console.error('❌ [AUTH] Authentication error:', error);
+            console.error(' [AUTH] Authentication error:', error);
             this.send({
                 type: 'auth-error',
                 payload: { message: 'Invalid token' }
@@ -757,7 +797,7 @@ export class User {
                 username: this.username,
                 chatroomId: chatroomId
             }).catch(error => {
-                console.error('❌ Failed to send user join event to Kafka:', error);
+                console.error('Failed to send user join event to Kafka:', error);
             });
 
             // Send analytics to Kafka (async - don't wait)
@@ -766,7 +806,7 @@ export class User {
                 chatroomId: chatroomId,
                 userId: this.userId
             }).catch(error => {
-                console.error('❌ Failed to send join analytics to Kafka:', error);
+                console.error(' Failed to send join analytics to Kafka:', error);
             });
 
             // Get online users and send confirmation
@@ -780,10 +820,10 @@ export class User {
                 }
             });
 
-            console.log(`💬 [CHAT JOIN SUCCESS] User ${this.username} joined chatroom ${chatroomId}`);
+            console.log(` [CHAT JOIN SUCCESS] User ${this.username} joined chatroom ${chatroomId}`);
 
         } catch (error) {
-            console.error('❌ Error handling chat join:', error);
+            console.error('Error handling chat join:', error);
             this.send({
                 type: 'chat-error',
                 payload: { message: 'Failed to join chatroom' }
@@ -839,7 +879,7 @@ export class User {
 
             // Send to Kafka for persistence (async - don't wait)
             this.kafkaService.sendChatMessage(messageData).catch(error => {
-                console.error('❌ Failed to send message to Kafka:', error);
+                console.error(' Failed to send message to Kafka:', error);
             });
 
             // Send to Redis for real-time distribution
@@ -852,7 +892,7 @@ export class User {
                 userId: this.userId,
                 metadata: { messageLength: content.length, messageType: type }
             }).catch(error => {
-                console.error('❌ Failed to send analytics to Kafka:', error);
+                console.error(' Failed to send analytics to Kafka:', error);
             });
 
             // Send confirmation to sender
@@ -865,10 +905,10 @@ export class User {
                 }
             });
 
-            console.log(`💬 [CHAT MESSAGE] User ${this.username} sent message to chatroom ${chatroomId}`);
+            console.log(`[CHAT MESSAGE] User ${this.username} sent message to chatroom ${chatroomId}`);
 
         } catch (error) {
-            console.error('❌ Error handling chat message:', error);
+            console.error(' Error handling chat message:', error);
             this.send({
                 type: 'chat-error',
                 payload: { message: 'Failed to send message' }
@@ -901,7 +941,7 @@ export class User {
                 username: this.username,
                 chatroomId: chatroomId
             }).catch(error => {
-                console.error('❌ Failed to send user leave event to Kafka:', error);
+                console.error('Failed to send user leave event to Kafka:', error);
             });
 
             // Send analytics to Kafka (async - don't wait)
@@ -910,7 +950,7 @@ export class User {
                 chatroomId: chatroomId,
                 userId: this.userId
             }).catch(error => {
-                console.error('❌ Failed to send leave analytics to Kafka:', error);
+                console.error('Failed to send leave analytics to Kafka:', error);
             });
 
             this.send({
@@ -918,16 +958,19 @@ export class User {
                 payload: { chatroomId }
             });
 
-            console.log(`💬 [CHAT LEAVE] User ${this.username} left chatroom ${chatroomId}`);
+            console.log(` [CHAT LEAVE] User ${this.username} left chatroom ${chatroomId}`);
 
         } catch (error) {
-            console.error('❌ Error handling chat leave:', error);
+            console.error('Error handling chat leave:', error);
         }
     }
 
     // Override destroy to clean up chat subscriptions
     public async destroy(): Promise<void> {
         this.isAlive = false;
+
+        // Stop heartbeat immediately
+        this.stopHeartbeat();
 
         try {
             // Clean up all chat subscriptions
@@ -946,7 +989,7 @@ export class User {
                             username: this.username,
                             chatroomId: chatroomId
                         }).catch(error => {
-                            console.error('❌ Failed to send user leave event to Kafka during cleanup:', error);
+                            console.error('Failed to send user leave event to Kafka during cleanup:', error);
                         });
                     }
                 }
@@ -955,7 +998,7 @@ export class User {
             this.activeChatrooms.clear();
 
         } catch (error) {
-            console.error('❌ Error cleaning up chat subscriptions:', error);
+            console.error('Error cleaning up chat subscriptions:', error);
         }
 
         // Clean up video calls

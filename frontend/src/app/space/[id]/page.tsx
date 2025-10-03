@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import OfficeSpaceViewer from '@/components/OfficeSpaceViewer';
-import SpaceViewer from '@/components/SpaceViewer';
 import LoadingScreen from '@/components/LoadingScreen';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { getTokenData, clearTokenData } from '@/utils/auth';
@@ -60,13 +59,19 @@ interface Chatroom {
 
 interface BackendChatroomResponse {
   id: string;
-  groupname: string;
-  desc?: string;
-  spaceid: string;
-  creatorid: string;
-  createdat: string;
-  passcode?: string;
-  memberCount?: number;
+  name: string;
+  description?: string | null;
+  spaceId: string;
+  creatorId: string;
+  createdAt: string;
+  passcode?: string | null;
+  creator?: {
+    id: string;
+    username: string;
+  };
+  _count?: {
+    members: number;
+  };
 }
 
 interface ChatMessage {
@@ -94,8 +99,7 @@ export default function SpacePage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [scale, setScale] = useState(0.5);
-  const [showGrid, setShowGrid] = useState(true);
+  const [showGrid] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Not Connected');
 
@@ -103,8 +107,6 @@ export default function SpacePage() {
   const [chatrooms, setChatrooms] = useState<Chatroom[]>([]);
   const [activeChatrooms, setActiveChatrooms] = useState<Set<string>>(new Set());
   const [chatMessages, setChatMessages] = useState<Map<string, ChatMessage[]>>(new Map());
-  // Removed unused onlineUsers state that was not referenced in UI
-  const [_onlineUsers, _setOnlineUsers] = useState<Map<string, User[]>>(new Map()); // Placeholder state; underscore to suppress unused warning
   const [selectedChatroom, setSelectedChatroom] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [showChatWindow, setShowChatWindow] = useState(false);
@@ -180,16 +182,16 @@ export default function SpacePage() {
 
   // User movement handler
   const handleUserMove = useCallback((x: number, y: number) => {
-    console.log('🚀 handleUserMove called with:', { x, y, currentUser, space: space ? { width: space.width, height: space.height } : null });
+    console.log('handleUserMove called with:', { x, y, currentUser, space: space ? { width: space.width, height: space.height } : null });
     
     if (!currentUser || !space) {
-      console.log('❌ Missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
+      console.log('Missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
       return;
     }
 
     // Validate input coordinates
     if (typeof x !== 'number' || typeof y !== 'number' || isNaN(x) || isNaN(y)) {
-      console.error('❌ Invalid coordinates received:', { x, y, typeof_x: typeof x, typeof_y: typeof y });
+      console.error('Invalid coordinates received:', { x, y, typeof_x: typeof x, typeof_y: typeof y });
       return;
     }
 
@@ -200,7 +202,7 @@ export default function SpacePage() {
     const clampedX = Math.max(GRID_SIZE, Math.min(maxPixelX, x)); // Start from GRID_SIZE, not 20
     const clampedY = Math.max(GRID_SIZE, Math.min(maxPixelY, y));
 
-    console.log('📏 Clamped coordinates:', { 
+    console.log('Clamped coordinates:', { 
       original: { x, y }, 
       clamped: { x: clampedX, y: clampedY }, 
       bounds: { maxX: maxPixelX, maxY: maxPixelY }
@@ -209,8 +211,10 @@ export default function SpacePage() {
     // Send movement to WebSocket service if connected (don't update locally, wait for server confirmation)
     if (isConnected) {
       // Convert pixel coordinates to grid coordinates for backend
-      const gridX = Math.round(clampedX / GRID_SIZE);
-      const gridY = Math.round(clampedY / GRID_SIZE);
+      // Use Math.floor instead of Math.round to prevent rounding errors
+      // Example: pixel 790 → 39.5 → floor(39.5) = 39 (valid) vs round(39.5) = 40 (rejected)
+      const gridX = Math.floor(clampedX / GRID_SIZE);
+      const gridY = Math.floor(clampedY / GRID_SIZE);
       
       websocketService.send('move', { 
         x: gridX, 
@@ -222,7 +226,7 @@ export default function SpacePage() {
         proximityVideoCall.updatePosition(clampedX, clampedY, 0);
       }
       
-      console.log(`📍 Sent movement request - Pixel: (${clampedX}, ${clampedY}) → Grid: (${gridX}, ${gridY})`);
+      console.log(`Sent movement request - Pixel: (${clampedX}, ${clampedY}) → Grid: (${gridX}, ${gridY})`);
     } else {
       // If not connected, update locally only
       setCurrentUser(prev => prev ? {
@@ -236,22 +240,22 @@ export default function SpacePage() {
         proximityVideoCall.updatePosition(clampedX, clampedY, 0);
       }
       
-      console.log(`🔄 Local movement to: ${clampedX}, ${clampedY} (not connected)`);
+      console.log(`Local movement to: ${clampedX}, ${clampedY} (not connected)`);
     }
   }, [currentUser, space, isConnected, shouldEnableVideoCalls, proximityVideoCall]);
 
   // Keyboard movement controls
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      console.log('🎹 Key pressed:', event.code, event.key);
+      console.log('Key pressed:', event.code, event.key);
       
       if (!currentUser || !space) {
-        console.log('❌ Cannot move - missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
+        console.log('Cannot move - missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
         return;
       }
 
       // Debug: Check current user state
-      console.log('🎮 Keyboard input:', { 
+      console.log('Keyboard input:', { 
         key: event.code, 
         currentUser: { x: currentUser.x, y: currentUser.y }, 
         space: { width: space.width, height: space.height } 
@@ -263,41 +267,37 @@ export default function SpacePage() {
 
       // Ensure current position values are numbers
       if (typeof newX !== 'number' || typeof newY !== 'number') {
-        console.error('❌ Invalid current position:', { x: newX, y: newY });
+        console.error('Invalid current position:', { x: newX, y: newY });
         return;
       }
 
       // Validate space dimensions
       if (!space.width || !space.height || typeof space.width !== 'number' || typeof space.height !== 'number') {
-        console.error('❌ Invalid space dimensions:', { width: space.width, height: space.height });
-        console.log('🔧 Using fallback dimensions: 400x400');
+        console.error('Invalid space dimensions:', { width: space.width, height: space.height });
+        console.log('Using fallback dimensions: 400x400');
         // Use fallback dimensions if not provided
         const fallbackWidth = 400;
         const fallbackHeight = 400;
         
         switch (event.code) {
           case 'ArrowUp':
-          case 'KeyW':
             newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
-            console.log('⬆️ Arrow Up (fallback) - oldY:', currentUser.y, 'newY:', newY);
+            console.log('Arrow Up (fallback) - oldY:', currentUser.y, 'newY:', newY);
             event.preventDefault();
             break;
           case 'ArrowDown':
-          case 'KeyS':
             newY = Math.min(fallbackHeight - GRID_SIZE, currentUser.y + moveDistance);
-            console.log('⬇️ Arrow Down (fallback) - oldY:', currentUser.y, 'newY:', newY);
+            console.log('Arrow Down (fallback) - oldY:', currentUser.y, 'newY:', newY);
             event.preventDefault();
             break;
           case 'ArrowLeft':
-          case 'KeyA':
             newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
-            console.log('⬅️ Arrow Left (fallback) - oldX:', currentUser.x, 'newX:', newX);
+            console.log('Arrow Left (fallback) - oldX:', currentUser.x, 'newX:', newX);
             event.preventDefault();
             break;
           case 'ArrowRight':
-          case 'KeyD':
             newX = Math.min(fallbackWidth - GRID_SIZE, currentUser.x + moveDistance);
-            console.log('➡️ Arrow Right (fallback) - oldX:', currentUser.x, 'newX:', newX);
+            console.log('Arrow Right (fallback) - oldX:', currentUser.x, 'newX:', newX);
             event.preventDefault();
             break;
           default:
@@ -306,27 +306,23 @@ export default function SpacePage() {
       } else {
         switch (event.code) {
           case 'ArrowUp':
-          case 'KeyW':
             newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
-            console.log('⬆️ Arrow Up - oldY:', currentUser.y, 'newY:', newY);
+            console.log('Arrow Up - oldY:', currentUser.y, 'newY:', newY);
             event.preventDefault();
             break;
           case 'ArrowDown':
-          case 'KeyS':
             newY = Math.min(space.height - GRID_SIZE, currentUser.y + moveDistance);
-            console.log('⬇️ Arrow Down - oldY:', currentUser.y, 'newY:', newY, 'maxY:', space.height - GRID_SIZE);
+            console.log('Arrow Down - oldY:', currentUser.y, 'newY:', newY, 'maxY:', space.height - GRID_SIZE);
             event.preventDefault();
             break;
           case 'ArrowLeft':
-          case 'KeyA':
             newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
-            console.log('⬅️ Arrow Left - oldX:', currentUser.x, 'newX:', newX);
+            console.log('Arrow Left - oldX:', currentUser.x, 'newX:', newX);
             event.preventDefault();
             break;
           case 'ArrowRight':
-          case 'KeyD':
             newX = Math.min(space.width - GRID_SIZE, currentUser.x + moveDistance);
-            console.log('➡️ Arrow Right - oldX:', currentUser.x, 'newX:', newX, 'maxX:', space.width - GRID_SIZE);
+            console.log('Arrow Right - oldX:', currentUser.x, 'newX:', newX, 'maxX:', space.width - GRID_SIZE);
             event.preventDefault();
             break;
           default:
@@ -336,10 +332,10 @@ export default function SpacePage() {
 
       // Only move if position actually changed and values are valid
       if ((newX !== currentUser.x || newY !== currentUser.y) && !isNaN(newX) && !isNaN(newY)) {
-        console.log('🎮 Moving from:', { x: currentUser.x, y: currentUser.y }, 'to:', { x: newX, y: newY });
+        console.log('Moving from:', { x: currentUser.x, y: currentUser.y }, 'to:', { x: newX, y: newY });
         handleUserMove(newX, newY);
       } else {
-        console.log('🚫 Invalid movement or no change:', { newX, newY, currentX: currentUser.x, currentY: currentUser.y });
+        console.log('Invalid movement or no change:', { newX, newY, currentX: currentUser.x, currentY: currentUser.y });
       }
     };
 
@@ -390,7 +386,7 @@ export default function SpacePage() {
       }
 
       const spaceData = await spaceResponse.json();
-      console.log('🏗️ Raw space data from backend:', spaceData);
+      console.log('Raw space data from backend:', spaceData);
       
       // Extract space info and elements from the response
       const spaceInfo = {
@@ -401,7 +397,7 @@ export default function SpacePage() {
         thumbnail: spaceData.thumbnail,
       };
 
-      console.log('🏠 Processed space info:', spaceInfo);
+      console.log('Processed space info:', spaceInfo);
       setSpace(spaceInfo);
       setElements(spaceData.elements || []);
 
@@ -464,31 +460,31 @@ export default function SpacePage() {
       const data = await response.json();
       
       if (data.status === 200) {
-        console.log('🔍 Raw backend chatroom data:', data.data);
+        console.log('Raw backend chatroom data:', data.data);
         
-        // Map backend response to frontend interface
+        // Map backend response (Prisma shape) to frontend interface
         const mappedChatrooms = (data.data || []).map((room: BackendChatroomResponse) => {
-          console.log('🔍 Mapping individual room:', room);
+          console.log('Mapping individual room:', room);
           return {
             id: room.id,
-            name: room.groupname,
-            description: room.desc,
-            spaceId: room.spaceid,
-            creatorId: room.creatorid,
-            createdAt: room.createdat,
-            hasPassword: !!room.passcode, // Convert to boolean
-            memberCount: room.memberCount || 0
-          };
+            name: room.name,
+            description: room.description ?? undefined,
+            spaceId: room.spaceId,
+            creatorId: room.creatorId,
+            createdAt: room.createdAt,
+            hasPassword: !!room.passcode,
+            memberCount: room._count?.members ?? 0
+          } as Chatroom;
         });
         
-        console.log('✅ Mapped chatrooms:', mappedChatrooms);
+        console.log('Mapped chatrooms:', mappedChatrooms);
         setChatrooms(mappedChatrooms);
-        console.log('✅ Loaded chatrooms:', mappedChatrooms);
+        console.log('Loaded chatrooms:', mappedChatrooms);
       } else {
         setChatError(data.message || 'Failed to load chatrooms');
       }
     } catch (error) {
-      console.error('❌ Failed to load chatrooms:', error);
+      console.error('Failed to load chatrooms:', error);
       setChatError('Failed to load chatrooms');
     } finally {
       setIsLoadingChatrooms(false);
@@ -526,7 +522,7 @@ export default function SpacePage() {
       const data = await response.json();
       
       if (data.message === 'success') {
-        console.log('✅ Chatroom created:', data.data);
+        console.log('Chatroom created:', data.data);
         await loadChatrooms(); // Refresh list
         return data.data;
       } else {
@@ -534,7 +530,7 @@ export default function SpacePage() {
         return null;
       }
     } catch (error) {
-      console.error('❌ Failed to create chatroom:', error);
+      console.error('Failed to create chatroom:', error);
       setChatError('Failed to create chatroom');
       return null;
     } finally {
@@ -577,10 +573,10 @@ export default function SpacePage() {
           newMap.set(chatroomId, messages);
           return newMap;
         });
-        console.log('✅ Loaded message history for chatroom:', chatroomId, messages);
+        console.log('Loaded message history for chatroom:', chatroomId, messages);
       }
     } catch (error) {
-      console.error('❌ Failed to load message history:', error);
+      console.error('Failed to load message history:', error);
     }
   }, []);
 
@@ -610,7 +606,7 @@ export default function SpacePage() {
       // Handle different response statuses
       if (response.status === 409) {
         // User already joined this chatroom
-        console.log('ℹ️ Already joined chatroom:', chatroomId);
+        console.log('Already joined chatroom:', chatroomId);
         
         // Still proceed with local state updates and WebSocket join
         if (isConnected) {
@@ -625,7 +621,7 @@ export default function SpacePage() {
         setSelectedChatroom(chatroomId);
         setShowChatWindow(true);
         
-        console.log('✅ Rejoined chatroom:', chatroomId);
+        console.log('Rejoined chatroom:', chatroomId);
         return true;
       } else if (data.status === 200 || data.message === 'sucess') {
         // Successfully joined for the first time
@@ -641,14 +637,14 @@ export default function SpacePage() {
         setSelectedChatroom(chatroomId);
         setShowChatWindow(true);
         
-        console.log('✅ Joined chatroom:', chatroomId);
+        console.log('Joined chatroom:', chatroomId);
         return true;
       } else {
         setChatError(data.message || 'Failed to join chatroom');
         return false;
       }
     } catch (error) {
-      console.error('❌ Failed to join chatroom:', error);
+      console.error('Failed to join chatroom:', error);
       setChatError('Failed to join chatroom');
       return false;
     }
@@ -659,13 +655,13 @@ export default function SpacePage() {
   // Send chat message
   const sendChatMessage = useCallback((chatroomId: string, content: string, type: 'text' | 'image' | 'file' = 'text') => {
     if (!activeChatrooms.has(chatroomId)) {
-      console.error('❌ Not in chatroom:', chatroomId);
+      console.error('Not in chatroom:', chatroomId);
       setChatError('Not connected to this chatroom');
       return;
     }
     
     if (!isConnected) {
-      console.error('❌ WebSocket not connected');
+      console.error('WebSocket not connected');
       setChatError('Connection lost');
       return;
     }
@@ -676,7 +672,7 @@ export default function SpacePage() {
       type
     });
     
-    console.log('📤 Sent chat message:', { chatroomId, content, type });
+    console.log('Sent chat message:', { chatroomId, content, type });
   }, [activeChatrooms, isConnected]);
 
   // Leave chatroom (currently unused but available for future functionality)
@@ -697,17 +693,11 @@ export default function SpacePage() {
       return newMap;
     });
     
-    _setOnlineUsers((prev: Map<string, User[]>) => {
-      const newMap = new Map(prev);
-      newMap.delete(chatroomId);
-      return newMap;
-    });
-    
     if (selectedChatroom === chatroomId) {
       setSelectedChatroom(null);
     }
     
-    console.log('👋 Left chatroom:', chatroomId);
+    console.log('Left chatroom:', chatroomId);
   }, [isConnected, selectedChatroom]);
 
   // Load chatrooms when space is loaded
@@ -719,7 +709,7 @@ export default function SpacePage() {
 
   const handleConnectToWebSocket = async () => {
     if (isConnected) {
-      console.log('⚠️ Already connected to WebSocket');
+      console.log('Already connected to WebSocket');
       return;
     }
     
@@ -735,7 +725,7 @@ export default function SpacePage() {
       // Use unified websocket service properly
       await websocketService.joinSpace(spaceId, tokenData.token);
       
-      console.log('🔗 WebSocket connected & joined space');
+      console.log('WebSocket connected & joined space');
       setConnectionStatus('Connected');
       setIsConnected(true);
       
@@ -753,7 +743,7 @@ export default function SpacePage() {
   const setupWebSocketEventListeners = () => {
     // Space events
     websocketService.on('space-joined', (payload: { spawn?: { x?: number; y?: number }; users?: Array<{ userId: string; username?: string; x: number; y: number }> }) => {
-      console.log('🎮 Successfully joined space at:', payload.spawn);
+      console.log('Successfully joined space at:', payload.spawn);
       
       // Update current user position to spawn point
       const spawnGridX = payload.spawn?.x || 1;
@@ -767,46 +757,50 @@ export default function SpacePage() {
           x: pixelX,
           y: pixelY
         } : null);
-        console.log('📍 Current user position updated - Grid:', { x: spawnGridX, y: spawnGridY }, 'Pixel:', { x: pixelX, y: pixelY });
+        console.log('Current user position updated - Grid:', { x: spawnGridX, y: spawnGridY }, 'Pixel:', { x: pixelX, y: pixelY });
       }
       
       // Set other users in the space
-      console.log('👥 [DEBUG] Received users from space-joined:', payload.users);
+      console.log('[DEBUG] Received users from space-joined:', payload.users);
       const otherUsers = (payload.users || []).map((user: { userId: string; username?: string; x: number; y: number }) => ({
         id: user.userId,
         username: user.username || `User_${user.userId?.slice(0, 8) || 'Unknown'}`,
         x: user.x * GRID_SIZE,
         y: user.y * GRID_SIZE
       }));
-      console.log('👥 [DEBUG] Processed other users:', otherUsers);
+      console.log('[DEBUG] Processed other users:', otherUsers);
       setUsers(otherUsers);
       setConnectionStatus('In Space');
     });
 
-    websocketService.on('user-joined-space', (payload: { userId: string; username?: string; spawn?: { x?: number; y?: number } }) => {
-      console.log('👤 New user joined:', payload);
+    websocketService.on('user-joined-space', (payload: { userId: string; username?: string; spawn?: { x?: number; y?: number }; x?: number; y?: number }) => {
+      console.log('New user joined:', payload);
+      // Extract coordinates from either spawn object or direct properties for backward compatibility
+      const gridX = payload.spawn?.x ?? payload.x ?? 1;
+      const gridY = payload.spawn?.y ?? payload.y ?? 1;
       const newUser = {
         id: payload.userId,
         username: payload.username || `User_${payload.userId?.slice(0, 8) || 'Unknown'}`,
-        x: (payload.spawn?.x || 1) * GRID_SIZE,
-        y: (payload.spawn?.y || 1) * GRID_SIZE
+        x: gridX * GRID_SIZE,
+        y: gridY * GRID_SIZE
       };
+      console.log(`[NEW USER] Added user ${newUser.username} at grid (${gridX}, ${gridY}) → pixel (${newUser.x}, ${newUser.y})`);
       setUsers(prev => [...prev, newUser]);
     });
 
     websocketService.on('user-moved', (payload: { userId: string; x: number; y: number }) => {
-      console.log('🚶 User moved:', payload);
+      console.log('User moved:', payload);
       const movedPixelX = payload.x * GRID_SIZE;
       const movedPixelY = payload.y * GRID_SIZE;
       
-      console.log(`🔄 [USER-MOVED] Converting Grid: (${payload.x}, ${payload.y}) → Pixel: (${movedPixelX}, ${movedPixelY})`);
+      console.log(`[USER-MOVED] Converting Grid: (${payload.x}, ${payload.y}) → Pixel: (${movedPixelX}, ${movedPixelY})`);
       
       if (currentUser && payload.userId === currentUser.id) {
-        console.log(`👤 [CURRENT USER] Before update - x: ${currentUser.x}, y: ${currentUser.y}`);
-        console.log(`👤 [CURRENT USER] After update  - x: ${movedPixelX}, y: ${movedPixelY}`);
+        console.log(`[CURRENT USER] Before update - x: ${currentUser.x}, y: ${currentUser.y}`);
+        console.log(`[CURRENT USER] After update  - x: ${movedPixelX}, y: ${movedPixelY}`);
         setCurrentUser(prev => {
           if (prev) {
-            console.log(`✅ [SET CURRENT USER] Updating from (${prev.x}, ${prev.y}) to (${movedPixelX}, ${movedPixelY})`);
+            console.log(`[SET CURRENT USER] Updating from (${prev.x}, ${prev.y}) to (${movedPixelX}, ${movedPixelY})`);
           }
           return prev ? {
             ...prev,
@@ -824,16 +818,16 @@ export default function SpacePage() {
     });
 
     websocketService.on('user-left', (payload: { userId: string }) => {
-      console.log('👋 User left:', payload);
+      console.log('User left:', payload);
       setUsers(prev => prev.filter(user => user.id !== payload.userId));
     });
 
     websocketService.on('move-rejected', (payload: { userId: string; x: number; y: number }) => {
-      console.log('❌ Movement rejected:', payload);
+      console.log('Movement rejected:', payload);
       // Backend sends grid coordinates, convert to pixels
       const rejectedPixelX = payload.x * GRID_SIZE;
       const rejectedPixelY = payload.y * GRID_SIZE;
-      console.log(`🔙 [MOVE REJECTED] Restoring position - Grid: (${payload.x}, ${payload.y}) → Pixel: (${rejectedPixelX}, ${rejectedPixelY})`);
+      console.log(`[MOVE REJECTED] Restoring position - Grid: (${payload.x}, ${payload.y}) → Pixel: (${rejectedPixelX}, ${rejectedPixelY})`);
       
       if (currentUser && payload.userId === currentUser.id) {
         setCurrentUser(prev => prev ? {
@@ -855,7 +849,7 @@ export default function SpacePage() {
       type?: string;
       createdAt?: string;
     }) => {
-      console.log('💬 Chat message received:', payload);
+      console.log('Chat message received:', payload);
       const chatroomId = payload.chatroomId;
       const newMessage: ChatMessage = {
         id: payload.messageId,
@@ -881,17 +875,17 @@ export default function SpacePage() {
 
     // Additional chat event handlers...
     websocketService.on('chat-joined', (payload: { chatroomId: string }) => {
-      console.log('✅ Chat joined:', payload);
+      console.log('Chat joined:', payload);
       setActiveChatrooms(prev => new Set([...prev, payload.chatroomId]));
     });
 
     websocketService.on('chat-error', (payload: { message?: string }) => {
-      console.error('❌ Chat error:', payload);
+      console.error('Chat error:', payload);
       setChatError(payload.message || 'Chat error occurred');
     });
 
     websocketService.on('error', (payload: { message?: string }) => {
-      console.error('❌ WebSocket error:', payload);
+      console.error('WebSocket error:', payload);
       setError(payload.message || 'WebSocket error');
     });
   };
@@ -905,7 +899,6 @@ export default function SpacePage() {
     setShowChatWindow(false); // Hide chat when disconnecting
     setSelectedChatroom(null); // Clear selected chatroom
     setActiveChatrooms(new Set()); // Clear active chatrooms
-    _setOnlineUsers(new Map()); // Clear online users
   };
 
   // ========================================
@@ -942,7 +935,7 @@ export default function SpacePage() {
   const handleJoinChatroom = async (chatroomId: string, hasPassword: boolean) => {
     // Check if already in this chatroom
     if (activeChatrooms.has(chatroomId)) {
-      console.log('ℹ️ Already in chatroom:', chatroomId);
+      console.log('Already in chatroom:', chatroomId);
       setSelectedChatroom(chatroomId);
       setShowChatWindow(true);
       return;
@@ -961,7 +954,7 @@ export default function SpacePage() {
     
     // Check if already in this chatroom
     if (activeChatrooms.has(pendingChatroomId)) {
-      console.log('ℹ️ Already in chatroom:', pendingChatroomId);
+      console.log('Already in chatroom:', pendingChatroomId);
       setSelectedChatroom(pendingChatroomId);
       setShowChatWindow(true);
       setPendingChatroomId(null);
@@ -1105,7 +1098,7 @@ export default function SpacePage() {
               currentPosition={{ x: currentUser.x, y: currentUser.y, z: 0 }}
               allUsers={[...users, { ...currentUser, isCurrentUser: true }]}
               onNearbyUsersChange={(nearbyUsers) => {
-                console.log('🎥 [SPACE PAGE] Nearby users updated:', nearbyUsers);
+                console.log('[SPACE PAGE] Nearby users updated:', nearbyUsers);
               }}
             />
 
@@ -1413,7 +1406,7 @@ export default function SpacePage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  {newChatroomPassword ? '🔒 This will be a private room' : '🌐 This will be a public room'}
+                  {newChatroomPassword ? 'This will be a private room' : 'This will be a public room'}
                 </p>
               </div>
 

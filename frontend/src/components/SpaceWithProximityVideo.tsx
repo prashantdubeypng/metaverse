@@ -15,7 +15,6 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
   username,
   spaceId
 }) => {
-  const [_websocket, _setWebsocket] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -41,12 +40,12 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
     };
 
     ws.onclose = () => {
-      console.log('🔌 WebSocket disconnected');
+      console.log('WebSocket disconnected');
       setIsConnected(false);
     };
 
     ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error);
+      console.error('WebSocket error:', error);
     };
 
     // Handle your existing WebSocket messages
@@ -57,13 +56,13 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
         // Handle your existing message types
         switch (data.type) {
           case 'user-joined-space':
-            console.log('👤 User joined:', data.payload);
+            console.log('User joined:', data.payload);
             break;
           case 'user-moved':
-            console.log('🚶 User moved:', data.payload);
+            console.log('User moved:', data.payload);
             break;
           case 'user-left':
-            console.log('👋 User left:', data.payload);
+            console.log('User left:', data.payload);
             break;
           // Video call messages are handled by the ProximityVideoCall component
           case 'video-call-start':
@@ -73,15 +72,14 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
             // These will be handled by the useProximityVideoCall hook
             break;
           default:
-            console.log('📨 Unknown message type:', data.type);
+            console.log('Unknown message type:', data.type);
         }
       } catch (error) {
-        console.error('❌ Error parsing WebSocket message:', error);
+        console.error('Error parsing WebSocket message:', error);
       }
     };
 
     wsRef.current = ws;
-    _setWebsocket(ws);
 
     return () => {
       ws.close();
@@ -104,7 +102,7 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
             <h2 className="text-2xl font-bold mb-4">Space: {spaceId}</h2>
             <p className="text-gray-600 mb-2">User: {username}</p>
             <p className="text-sm text-gray-500">
-              WebSocket: {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
+              WebSocket: {isConnected ? 'Connected' : 'Disconnected'}
             </p>
             <div className="mt-4 p-4 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800">
@@ -126,7 +124,7 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
       {/* Connection Status Indicator */}
       {!isConnected && (
         <div className="absolute top-4 right-4 bg-red-600 text-white px-3 py-2 rounded-lg text-sm">
-          🔴 Disconnected
+          Disconnected
         </div>
       )}
     </div>

@@ -24,7 +24,7 @@ class WebSocketService {
   private userId: string | null = null;
   private isAuthenticated = false;
 
-  constructor(url = 'http://localhost:3001') {
+  constructor(url = 'ws://localhost:3001') {
     this.url = url;
     
     if (typeof window !== 'undefined') {
@@ -58,7 +58,7 @@ class WebSocketService {
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
-          console.log('🔗 WebSocket connected');
+          console.log('WebSocket connected');
           this.reconnectAttempts = 0;
           this.reconnectInterval = 1000;
           this.startHeartbeat();
@@ -76,7 +76,7 @@ class WebSocketService {
         };
 
         this.ws.onclose = (event) => {
-          console.log('🔌 WebSocket disconnected', event.code, event.reason);
+          console.log('WebSocket disconnected', event.code, event.reason);
           this.stopHeartbeat();
           this.isAuthenticated = false;
           this.connectionPromise = null;
@@ -142,7 +142,7 @@ class WebSocketService {
       const onAuthenticated = () => {
         clearTimeout(timeout);
         this.isAuthenticated = true;
-        console.log('✅ WebSocket authenticated');
+        console.log('WebSocket authenticated');
         this.off('authenticated', onAuthenticated);
         this.off('auth-error', onAuthError);
         resolve();
@@ -341,7 +341,7 @@ class WebSocketService {
       clearTimeout(this.reconnectTimeout);
     }
 
-    console.log(`🔄 Scheduling WebSocket reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectInterval}ms`);
+    console.log(`Scheduling WebSocket reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectInterval}ms`);
 
     this.reconnectTimeout = setTimeout(() => {
       if (!this.isManualDisconnect) {

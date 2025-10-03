@@ -102,17 +102,17 @@ export const useVideoCall = ({
       setCallState('incoming');
     });
     
-    websocketService.on('call-accepted', (payload) => {
+    websocketService.on('call-accepted', (_payload) => {
       setCallState('active');
       setIncomingCall(null);
     });
     
-    websocketService.on('call-rejected', (payload) => {
+    websocketService.on('call-rejected', (_payload) => {
       setCallState('idle');
       setIncomingCall(null);
     });
     
-    websocketService.on('call-ended', (payload) => {
+    websocketService.on('call-ended', (_payload) => {
       setCurrentSession(null);
       setCallState('idle');
       setIncomingCall(null);
