@@ -1,4 +1,6 @@
-'use client';
+"use client";
+
+import { ENDPOINTS } from '@/CONFIG/env.config';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -48,7 +50,7 @@ export default function SignupPage() {
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/auth/signup', {
+  const response = await fetch(ENDPOINTS.auth.signup, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -7,6 +7,8 @@ type EventData = Record<string, unknown>;
  * WebSocket service for real-time communication
  * Handles connection management, event listeners, and message sending
  */
+import { ENV } from '@/CONFIG/env.config';
+
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
@@ -24,7 +26,7 @@ class WebSocketService {
   private userId: string | null = null;
   private isAuthenticated = false;
 
-  constructor(url = 'ws://localhost:3001') {
+  constructor(url = ENV.WS_URL) {
     this.url = url;
     
     if (typeof window !== 'undefined') {

@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState, useCallback } from 'react';
 import { User } from '@/types/video-call';
 import { useProximityVideoCall } from '@/hooks/useProximityVideoCall';

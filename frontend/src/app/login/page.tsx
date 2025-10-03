@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { setTokenData, isAuthenticated, getUserRole } from '@/utils/auth';
+import { ENDPOINTS } from '@/CONFIG/env.config';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -32,7 +33,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+  const response = await fetch(ENDPOINTS.auth.login, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

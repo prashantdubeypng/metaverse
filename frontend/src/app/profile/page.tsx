@@ -1,4 +1,6 @@
-'use client';
+"use client";
+
+import { ENDPOINTS, ENV } from '@/CONFIG/env.config';
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -46,7 +48,8 @@ export default function ProfilePage() {
         return;
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/user/avtars/${avatarId}`, {
+  const baseUserUrl = `${ENV.API_URL}/api/v1/user`;
+  const response = await fetch(`${baseUserUrl}/avtars/${avatarId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -84,7 +87,7 @@ export default function ProfilePage() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/user/profile/get/user', {
+  const response = await fetch(ENDPOINTS.auth.profile, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -137,7 +140,7 @@ export default function ProfilePage() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/avatars', {
+  const response = await fetch(`${ENV.API_URL}/api/v1/avatars`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -201,7 +204,7 @@ export default function ProfilePage() {
 
       console.log('Updating avatar with ID:', selectedAvatarId);
       
-      const response = await fetch('http://localhost:8000/api/v1/user/metadata', {
+  const response = await fetch(`${ENV.API_URL}/api/v1/user/metadata`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,

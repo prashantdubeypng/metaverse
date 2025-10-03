@@ -1,3 +1,4 @@
+import { ENV } from '@/CONFIG/env.config';
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -40,7 +41,7 @@ export interface UseVideoCallReturn {
 
 export const useVideoCall = ({ 
   currentUser, 
-  webSocketUrl = 'http://localhost:3001' 
+  webSocketUrl = ENV.WS_URL 
 }: UseVideoCallProps): UseVideoCallReturn => {
   // Core state
   const [callState, setCallState] = useState<CallState>('idle');

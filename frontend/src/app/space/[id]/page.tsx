@@ -1,4 +1,5 @@
 "use client";
+import { ENV, ENDPOINTS } from '@/CONFIG/env.config';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import OfficeSpaceViewer from '@/components/OfficeSpaceViewer';
@@ -137,7 +138,7 @@ export default function SpacePage() {
       y: currentUser.y,
       isCurrentUser: true
     } : { id: '', username: '', x: 0, y: 0 },
-    webSocketUrl: 'http://localhost:3001'
+  webSocketUrl: ENV.WS_URL
   });
 
   // Proximity video call integration
@@ -358,7 +359,12 @@ export default function SpacePage() {
       }
 
       // First, check if user has access to this space
-      const membershipResponse = await fetch(`http://localhost:8000/api/v1/space/room/join-room/${spaceId}`, {
+      const membershipUrl = `${ENDPOINTS.space.base}/room/join-room/${spaceId}`;
+      console.log('🔍 [DEBUG] Fetching membership URL:', membershipUrl);
+      console.log('🔍 [DEBUG] ENDPOINTS.space.base:', ENDPOINTS.space.base);
+      console.log('🔍 [DEBUG] ENV.API_URL:', ENV.API_URL);
+      
+  const membershipResponse = await fetch(membershipUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -373,7 +379,7 @@ export default function SpacePage() {
       }
 
       // Then fetch space data and elements
-      const spaceResponse = await fetch(`http://localhost:8000/api/v1/space/${spaceId}`, {
+  const spaceResponse = await fetch(`${ENDPOINTS.space.base}/${spaceId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -392,8 +398,8 @@ export default function SpacePage() {
       const spaceInfo = {
         id: spaceData.id,
         name: spaceData.name,
-        width: spaceData.width,
-        height: spaceData.height,
+        width: 1900,
+        height: 900,
         thumbnail: spaceData.thumbnail,
       };
 
@@ -451,7 +457,7 @@ export default function SpacePage() {
         return;
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/chatroom/space/${spaceId}`, {
+  const response = await fetch(`${ENDPOINTS.chatroom.base}/space/${spaceId}`, {
         headers: {
           'Authorization': `Bearer ${tokenData.token}`
         }
@@ -505,7 +511,7 @@ export default function SpacePage() {
         return null;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/chatroom/create', {
+  const response = await fetch(`${ENDPOINTS.chatroom.base}/create`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -544,7 +550,7 @@ export default function SpacePage() {
       const tokenData = getTokenData();
       if (!tokenData?.token) return;
 
-      const response = await fetch(`http://localhost:8000/api/v1/chatroom/${chatroomId}/messages`, {
+  const response = await fetch(`${ENDPOINTS.chatroom.base}/${chatroomId}/messages`, {
         headers: {
           'Authorization': `Bearer ${tokenData.token}`
         }
@@ -592,7 +598,7 @@ export default function SpacePage() {
       }
 
       // Join via HTTP API
-      const response = await fetch(`http://localhost:8000/api/v1/chatroom/join/${chatroomId}`, {
+  const response = await fetch(`${ENDPOINTS.chatroom.base}/join/${chatroomId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,

@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { User } from '@/types/video-call';
 import proximityVideoCallManager from '@/services/proximityVideoCall';

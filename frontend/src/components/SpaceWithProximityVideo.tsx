@@ -1,3 +1,4 @@
+import { ENV } from '@/CONFIG/env.config';
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -21,7 +22,7 @@ const SpaceWithProximityVideo: React.FC<SpaceWithProximityVideoProps> = ({
   // Initialize WebSocket connection
   useEffect(() => {
     // Replace with your actual WebSocket URL
-    const wsUrl ='http://localhost:3001';
+  const wsUrl = ENV.WS_URL;
     const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
