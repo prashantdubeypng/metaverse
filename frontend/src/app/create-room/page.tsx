@@ -36,7 +36,7 @@ export default function CreateSpacePage() {
         return;
       }
       const response = await fetch(
-        "http://localhost:8000/api/v1/user/space/maps/refernce",
+        "process.env.NEXT_PUBLIC_API_URL/user/space/maps/refernce",
         {
           method: "GET",
           headers: {
@@ -103,7 +103,7 @@ export default function CreateSpacePage() {
           dimensions: `${customWidth}x${customHeight}`,
         };
       }
-      const response = await fetch("http://localhost:8000/api/v1/space/", {
+      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/space/", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${tokenData.token}`,
