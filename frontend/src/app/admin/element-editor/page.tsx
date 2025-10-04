@@ -87,7 +87,7 @@ export default function ElementEditorPage() {
         return;
       }
 
-      const response = await fetch('process.env.NEXT_PUBLIC_API_URL/admin/element', {
+      const response = await fetch('https://metaverse-http-u3ys.onrender.com/api/v1/admin/element', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
