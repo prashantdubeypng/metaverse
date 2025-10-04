@@ -76,7 +76,7 @@ function MapEditorContent() {
         return;
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/maps/${mapId}`, {
+      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/maps/${mapId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
