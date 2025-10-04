@@ -76,7 +76,7 @@ function MapEditorContent() {
         return;
       }
 
-      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/maps/${mapId}`, {
+      const response = await fetch(`https://metaverse-http-u3ys.onrender.com/api/v1/maps/${mapId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -120,7 +120,7 @@ function MapEditorContent() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/elements', {
+      const response = await fetch('https://metaverse-http-u3ys.onrender.com/api/v1/elements', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -174,7 +174,7 @@ function MapEditorContent() {
       const tokenData = getTokenData();
       if (!tokenData?.token) return;
 
-      const response = await fetch(`http://localhost:8000/api/v1/maps/${mapId}/elements`, {
+      const response = await fetch(`https://metaverse-http-u3ys.onrender.com/api/v1/maps/${mapId}/elements`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -217,8 +217,8 @@ function MapEditorContent() {
       };
 
       const url = isEditing 
-        ? `http://localhost:8000/api/v1/admin/map/${mapId}`
-        : 'http://localhost:8000/api/v1/admin/map';
+        ? `https://metaverse-http-u3ys.onrender.com/api/v1/admin/map/${mapId}`
+        : 'https://metaverse-http-u3ys.onrender.com/api/v1/admin/map';
       
       const method = isEditing ? 'PUT' : 'POST';
 
