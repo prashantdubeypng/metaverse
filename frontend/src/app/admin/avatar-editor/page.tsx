@@ -70,7 +70,7 @@ export default function AvatarEditorPage() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/admin/avatar/create', {
+      const response = await fetch('process.env.NEXT_PUBLIC_API_URL/admin/avatar/create', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
