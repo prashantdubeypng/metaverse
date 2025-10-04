@@ -49,7 +49,7 @@ export default function ProfilePage() {
       }
 
   const baseUserUrl = `${ENV.API_URL}/api/v1/user`;
-  const response = await fetch(`${baseUserUrl}/avtars/${avatarId}`, {
+  const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/avtars/${avatarId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -140,7 +140,7 @@ export default function ProfilePage() {
         return;
       }
 
-  const response = await fetch(`${ENV.API_URL}/api/v1/avatars`, {
+  const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/avatars`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -204,7 +204,7 @@ export default function ProfilePage() {
 
       console.log('Updating avatar with ID:', selectedAvatarId);
       
-  const response = await fetch(`${ENV.API_URL}/api/v1/user/metadata`, {
+  const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/user/metadata`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
