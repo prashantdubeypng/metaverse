@@ -87,7 +87,7 @@ export default function ElementEditorPage() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/admin/element', {
+      const response = await fetch('process.env.NEXT_PUBLIC_API_URL/admin/element', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
