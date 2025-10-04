@@ -8,6 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@next/env':
+        specifier: ^15.5.4
+        version: 15.5.4
+      '@types/dotenv':
+        specifier: ^8.2.3
+        version: 8.2.3
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.2.3
       next:
         specifier: 15.5.0
         version: 15.5.0(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -267,6 +276,9 @@ packages:
   '@next/env@15.5.0':
     resolution: {integrity: sha512-sDaprBAfzCQiOgo2pO+LhnV0Wt2wBgartjrr+dpcTORYVnnXD0gwhHhiiyIih9hQbq+JnbqH4odgcFWhqCGidw==}
 
+  '@next/env@15.5.4':
+    resolution: {integrity: sha512-27SQhYp5QryzIT5uO8hq99C69eLQ7qkzkDPsk3N+GuS2XgOgoYEeOav7Pf8Tn4drECOVDsDg8oj+/DVy8qQL2A==}
+
   '@next/eslint-plugin-next@15.5.0':
     resolution: {integrity: sha512-+k83U/fST66eQBjTltX2T9qUYd43ntAe+NZ5qeZVTQyTiFiHvTLtkpLKug4AnZAtuI/lwz5tl/4QDJymjVkybg==}
 
@@ -433,6 +445,10 @@ packages:
 
   '@tybys/wasm-util@0.10.0':
     resolution: {integrity: sha512-VyyPYFlOMNylG45GoAe0xDoLwWuowvf92F9kySqzYh8vmYm7D2u4iUJKa1tOUpS70Ku13ASrOkS4ScXFsTaCNQ==}
+
+  '@types/dotenv@8.2.3':
+    resolution: {integrity: sha512-g2FXjlDX/cYuc5CiQvyU/6kkbP1JtmGzh0obW50zD7OKeILVL0NSpPWLXVfqoAGQjom2/SLLx9zHq0KXvD6mbw==}
+    deprecated: This is a stub types definition. dotenv provides its own type definitions, so you do not need this installed.
 
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
@@ -800,6 +816,10 @@ packages:
   doctrine@2.1.0:
     resolution: {integrity: sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw==}
     engines: {node: '>=0.10.0'}
+
+  dotenv@17.2.3:
+    resolution: {integrity: sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==}
+    engines: {node: '>=12'}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -1992,6 +2012,8 @@ snapshots:
 
   '@next/env@15.5.0': {}
 
+  '@next/env@15.5.4': {}
+
   '@next/eslint-plugin-next@15.5.0':
     dependencies:
       fast-glob: 3.3.1
@@ -2118,6 +2140,10 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@types/dotenv@8.2.3':
+    dependencies:
+      dotenv: 17.2.3
 
   '@types/estree@1.0.8': {}
 
@@ -2509,6 +2535,8 @@ snapshots:
   doctrine@2.1.0:
     dependencies:
       esutils: 2.0.3
+
+  dotenv@17.2.3: {}
 
   dunder-proto@1.0.1:
     dependencies:

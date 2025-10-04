@@ -33,6 +33,8 @@ export default function LoginPage() {
     setError('');
 
     try {
+      console.log("login route testing ")
+      console.log(ENDPOINTS.auth.login)
   const response = await fetch(ENDPOINTS.auth.login, {
         method: 'POST',
         headers: {
@@ -140,6 +142,14 @@ export default function LoginPage() {
                 className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 placeholder="Enter your password"
               />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm">
+              <Link href="/forgot-password" className="font-medium text-indigo-600 hover:text-indigo-500">
+                Forgot your password?
+              </Link>
             </div>
           </div>
 

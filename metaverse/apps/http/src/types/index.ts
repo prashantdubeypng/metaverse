@@ -1,4 +1,11 @@
 import z from 'zod';
+export const forgetpassword = z.object({
+  username:z.string()
+})
+export const forgetpasswordotp = z.object({
+otp:z.number
+})
+
  export const signupSchema = z.object({
     username: z.string(),
     password: z.string().min(6, 'Password must be at least 6 characters long'),
