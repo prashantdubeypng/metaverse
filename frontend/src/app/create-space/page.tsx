@@ -41,7 +41,7 @@ export default function CreateSpacePage() {
       }
 
       const response = await fetch(
-        "http://localhost:8000/api/v1/user/space/maps/refernce",
+        "process.env.NEXT_PUBLIC_API_URL/user/space/maps/refernce",
         {
           method: "GET",
           headers: {
@@ -111,7 +111,7 @@ export default function CreateSpacePage() {
       }
 console.log("tokenData in CreateSpacePage:", tokenData);
 console.log('i am sending the data to the route')
-      const response = await fetch("http://localhost:8000/api/v1/space/", {
+      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/space/", {
         method: "POST",
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
