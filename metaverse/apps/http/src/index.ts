@@ -6,10 +6,8 @@ const app = express();
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL || 'http://localhost:3000']
-    : '*',  // Allow all in development
-  credentials: process.env.NODE_ENV === 'production',
+  origin: "https://metaverse-prashants-projects-d837394d.vercel.app/"
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
