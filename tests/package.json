@@ -1,0 +1,30 @@
+{
+  "name": "metaverse-tests",
+  "version": "1.0.0",
+  "description": "Comprehensive test suite for metaverse backend",
+  "type": "module",
+  "scripts": {
+    "test": "jest --config ./jest.config.cjs",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --testPathPattern=unit",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "jest --testPathPattern=e2e"
+  },
+  "dependencies": {
+    "@types/jest": "^29.5.5",
+    "@types/node": "^20.6.0",
+    "@types/supertest": "^2.0.12",
+    "@types/ws": "^8.5.5",
+    "jest": "^29.6.4",
+    "supertest": "^6.3.3",
+    "ws": "^8.13.0",
+    "axios": "^1.5.0",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.2.2"
+  }
+}
