@@ -431,7 +431,10 @@ class ProximityVideoCallManager extends EventEmitter {
     
     // Generate unique signal ID for duplicate detection (answer/offer only)
     if (type === 'answer' || type === 'offer') {
-      const signalId = `${type}-${fromUserId}-${Date.now()}`;
+      // Use SDP content hash for better deduplication
+      const sdpContent = type === 'answer' ? answer?.sdp : offer?.sdp;
+      const signalId = `${type}-${fromUserId}-${sdpContent?.substring(0, 50)}`;
+      
       // Short-lived deduplication: keep last 100 signals
       if (this.processedSignals.has(signalId)) {
         console.log('[SIGNAL DEDUP] Ignoring duplicate', type, 'from', fromUserId);
@@ -535,6 +538,12 @@ class ProximityVideoCallManager extends EventEmitter {
             // Only valid if we are in have-local-offer (waiting for answer)
             if (peerConnection.signalingState !== 'have-local-offer') {
               console.log('[NEGOTIATION] Ignoring answer: not in have-local-offer state (current:', peerConnection.signalingState + ')');
+              return;
+            }
+            
+            // Additional check: ensure we don't have a remote description already
+            if (peerConnection.remoteDescription) {
+              console.log('[NEGOTIATION] Ignoring duplicate answer: remote description already set');
               return;
             }
             
