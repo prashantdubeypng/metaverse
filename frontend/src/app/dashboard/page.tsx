@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import LoadingScreen from '@/components/LoadingScreen';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { clearTokenData, getTokenData } from '@/utils/auth';
+import { ENV } from '@/CONFIG/env.config';
 
 interface Space {
   id: string;
@@ -46,7 +47,7 @@ export default function DashboardPage() {
       const tokenData = getTokenData();
       if (!tokenData?.token) return;
 
-      const response = await fetch(`http://localhost:8000/api/v1/user/avtars/${avatarId}`, {
+      const response = await fetch(`${ENV.API_URL}/user/avtars/${avatarId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -75,7 +76,7 @@ export default function DashboardPage() {
       }
 
       // Fetch full user profile data
-      const response = await fetch('http://localhost:8000/api/v1/user/profile/get/user', {
+      const response = await fetch(`${ENV.API_URL}/user/profile/get/user`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -117,7 +118,7 @@ export default function DashboardPage() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/space/all', {
+      const response = await fetch(`${ENV.API_URL}/space/all`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -164,7 +165,7 @@ export default function DashboardPage() {
         throw new Error('No authentication token');
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/space/room/join-room/${joinRoomId}`, {
+      const response = await fetch(`${ENV.API_URL}/space/room/join-room/${joinRoomId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -213,7 +214,7 @@ export default function DashboardPage() {
         throw new Error('No authentication token');
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/space/${spaceId}/leave`, {
+      const response = await fetch(`${ENV.API_URL}/space/${spaceId}/leave`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -239,7 +240,7 @@ export default function DashboardPage() {
   };
 
   const copyJoinUrl = (spaceId: string) => {
-    const url = `http://localhost:8000/api/v1/space/room/join-room/${spaceId}`;
+    const url = `${ENV.API_URL}/space/room/join-room/${spaceId}`;
     navigator.clipboard.writeText(url);
     setError('Join URL copied!'); // Reuse error for feedback, or use a dedicated state
   };

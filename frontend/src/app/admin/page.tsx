@@ -6,6 +6,7 @@ import Image from 'next/image';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LoadingScreen from '@/components/LoadingScreen';
 import { clearTokenData, getTokenData } from '@/utils/auth';
+import { ENV } from '@/CONFIG/env.config';
 
 interface Map {
     id: string;
@@ -38,7 +39,7 @@ export default function AdminPage() {
                 return;
             }
 
-            const response = await fetch('http://localhost:8000/api/v1/admin/get-all/maps', {
+            const response = await fetch(`${ENV.API_URL}/admin/get-all/maps`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${tokenData.token}`,
@@ -92,7 +93,7 @@ export default function AdminPage() {
             }
 
             // Fetch space data with all elements
-            const response = await fetch(`http://localhost:8000/api/v1/space/${mapId}`, {
+            const response = await fetch(`${ENV.API_URL}/space/${mapId}`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${tokenData.token}`,
@@ -134,7 +135,7 @@ export default function AdminPage() {
                 return;
             }
 
-            const response = await fetch(`http://localhost:8000/api/v1/maps/${mapId}`, {
+            const response = await fetch(`${ENV.API_URL}/maps/${mapId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${tokenData.token}`,

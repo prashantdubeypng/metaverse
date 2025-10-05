@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { clearTokenData, getTokenData } from '@/utils/auth';
+import { ENV } from '@/CONFIG/env.config';
 
 export default function ElementEditorPage() {
   const [elementName, setElementName] = useState('');
@@ -87,7 +88,7 @@ export default function ElementEditorPage() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/admin/element', {
+      const response = await fetch(`${ENV.API_URL}/admin/element`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,

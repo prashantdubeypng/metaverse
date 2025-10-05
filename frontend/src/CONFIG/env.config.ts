@@ -1,6 +1,7 @@
 // Centralized frontend environment configuration
-const API_URL = (process.env.NEXT_PUBLIC_API_URL!);
-const WS_URL = (process.env.NEXT_PUBLIC_WS_URL!);
+// Hardcoded production URLs - no .env needed
+const API_URL = 'https://metaverse-http-u3ys.onrender.com/api/v1';
+const WS_URL = 'wss://metaverse-ws-1n9v.onrender.com';
 
 export const ENV = {
 	API_URL,

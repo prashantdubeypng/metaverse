@@ -2,7 +2,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import ProtectedRoute from '@/components/ProtectedRoute';
 import { getTokenData, clearTokenData } from "@/utils/auth";
+import { ENV } from '@/CONFIG/env.config';
 
 interface MapTemplate {
   id: string;
@@ -36,7 +38,7 @@ export default function CreateSpacePage() {
         return;
       }
       const response = await fetch(
-        "http://localhost:8000/api/v1/user/space/maps/refernce",
+        `${ENV.API_URL}/user/space/maps/refernce`,
         {
           method: "GET",
           headers: {
@@ -103,7 +105,7 @@ export default function CreateSpacePage() {
           dimensions: `${customWidth}x${customHeight}`,
         };
       }
-      const response = await fetch("http://localhost:8000/api/v1/space/", {
+      const response = await fetch(`${ENV.API_URL}/space/`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${tokenData.token}`,

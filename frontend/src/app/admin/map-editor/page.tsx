@@ -18,6 +18,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import LoadingScreen from '@/components/LoadingScreen';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { clearTokenData, getTokenData } from '@/utils/auth';
+import { ENV } from '@/CONFIG/env.config';
 
 interface Map {
   id: string;
@@ -76,7 +77,7 @@ function MapEditorContent() {
         return;
       }
 
-      const response = await fetch(`http://localhost:8000/api/v1/maps/${mapId}`, {
+      const response = await fetch(`${ENV.API_URL}/maps/${mapId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -120,7 +121,7 @@ function MapEditorContent() {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/v1/elements', {
+      const response = await fetch(`${ENV.API_URL}/elements`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -174,7 +175,7 @@ function MapEditorContent() {
       const tokenData = getTokenData();
       if (!tokenData?.token) return;
 
-      const response = await fetch(`http://localhost:8000/api/v1/maps/${mapId}/elements`, {
+      const response = await fetch(`${ENV.API_URL}/maps/${mapId}/elements`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -217,8 +218,8 @@ function MapEditorContent() {
       };
 
       const url = isEditing 
-        ? `http://localhost:8000/api/v1/admin/map/${mapId}`
-        : 'http://localhost:8000/api/v1/admin/map';
+        ? `${ENV.API_URL}/admin/map/${mapId}`
+        : `${ENV.API_URL}/admin/map`;
       
       const method = isEditing ? 'PUT' : 'POST';
 

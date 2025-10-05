@@ -31,7 +31,7 @@ export default function ForgotPasswordPage() {
       console.log('🔍 Requesting OTP for username:', username);
       console.log('🔍 API Endpoint:', ENDPOINTS.auth.forgetPassword);
       
-      const response = await fetch("http://localhost:8000/api/v1/auth/forget/password", {
+  const response = await fetch(ENDPOINTS.auth.forgetPassword, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -81,7 +81,7 @@ export default function ForgotPasswordPage() {
     }
 
     try {
-      const response = await fetch("http://localhost:8000/api/v1/auth/reset/password", {
+  const response = await fetch(ENDPOINTS.auth.resetPassword, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
