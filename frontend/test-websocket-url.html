@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket URL Test</title>
+</head>
+<body>
+    <h1>WebSocket URL Test</h1>
+    <p>Open browser console to see the WebSocket URL being used</p>
+    
+    <script type="module">
+        // Simulate Next.js environment variable resolution
+        const NEXT_PUBLIC_WS_URL = "http://localhost:3001";
+        console.log('Environment NEXT_PUBLIC_WS_URL:', NEXT_PUBLIC_WS_URL);
+        
+        // Test WebSocket connection
+        try {
+            const ws = new WebSocket(NEXT_PUBLIC_WS_URL || 'http://localhost:3001');
+            console.log('✅ WebSocket created with URL:', ws.url);
+            
+            ws.onopen = () => {
+                console.log('🔗 WebSocket connected successfully');
+                ws.close();
+            };
+            
+            ws.onerror = (error) => {
+                console.log('❌ WebSocket connection failed:', error);
+            };
+        } catch (error) {
+            console.error('Error creating WebSocket:', error);
+        }
+    </script>
+</body>
+</html>
