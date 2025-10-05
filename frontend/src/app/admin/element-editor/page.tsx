@@ -92,6 +92,7 @@ export default function ElementEditorPage() {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           imageurl: elementUrl,
