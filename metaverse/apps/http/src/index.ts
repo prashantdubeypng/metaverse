@@ -6,7 +6,7 @@ const app = express();
 
 // CORS configuration
 const corsOptions = {
-  origin: "https://metaverse-prashants-projects-d837394d.vercel.app",
+  origin: "https://metaverse-seven-gold.vercel.app",
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
