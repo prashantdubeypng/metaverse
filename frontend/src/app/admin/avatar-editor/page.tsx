@@ -71,7 +71,7 @@ export default function AvatarEditorPage() {
         return;
       }
 
-      const response = await fetch(`${ENV.API_URL}/admin/avatar/create`, {
+      const response = await fetch(`${ENV.API_URL}/admin/avatar`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
