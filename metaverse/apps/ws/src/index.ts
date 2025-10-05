@@ -12,7 +12,7 @@ import { VideoCallManager } from './VideoCallManager';
 const PORT = parseInt(process.env.PORT || `${DEFAULT_WS_PORT}`, 10);
 const wss = new WebSocketServer({ 
   port: PORT,
-  perMessageDeflate: false // Disable compression for better performance
+  perMessageDeflate: false 
 });
 
 console.log(`WebSocket server starting on port ${PORT}...`);
