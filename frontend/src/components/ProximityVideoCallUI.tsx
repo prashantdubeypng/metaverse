@@ -1,6 +1,20 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useProximityVideoCall } from '@/hooks/useProximityVideoCall';
 
+/**
+ * ProximityVideoCallUI - Video call UI component
+ * 
+ * PURPOSE:
+ * Displays proximity-based video calls in a draggable, resizable window.
+ * Shows local and remote video streams with controls for mute, camera, and screen share.
+ * 
+ * BUG FIXES:
+ * - BUG-002: Fixed video stream black screen by adding proper stream handling,
+ *   autoplay policy handling, and retry logic
+ * 
+ * @see docs/bugs/video-calling/BUG-002-video-stream-black-screen.md
+ */
+
 interface VideoStreamProps {
   stream: MediaStream | null;
   isLocal?: boolean;
@@ -10,6 +24,15 @@ interface VideoStreamProps {
   className?: string;
 }
 
+/**
+ * VideoStream component - Handles video element with robust stream attachment
+ * 
+ * BUG-002 FIX: Implements proper stream handling with:
+ * - Metadata load waiting
+ * - Autoplay policy handling (start muted, then unmute)
+ * - Retry logic for failed playback
+ * - Event logging for debugging
+ */
 const VideoStream: React.FC<VideoStreamProps> = ({
   stream,
   isLocal = false,
@@ -19,23 +42,177 @@ const VideoStream: React.FC<VideoStreamProps> = ({
   className = ''
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasError, setHasError] = useState(false);
 
+  /**
+   * BUG-002 FIX: Robust stream attachment with autoplay handling
+   * 
+   * This effect properly attaches the stream and handles browser autoplay policies:
+   * 1. Wait for video element and stream
+   * 2. Set srcObject
+   * 3. Wait for metadata to load
+   * 4. Start muted (to bypass autoplay), then unmute for remote
+   * 5. Retry logic for failures
+   */
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const videoElement = videoRef.current;
+    if (!videoElement || !stream) {
+      setIsPlaying(false);
+      return;
     }
-  }, [stream]);
+
+    let isMounted = true;
+    setHasError(false);
+
+    const attachStream = async () => {
+      try {
+        // Set the stream source
+        videoElement.srcObject = stream;
+        
+        // Log video track info for debugging
+        const videoTracks = stream.getVideoTracks();
+        if (videoTracks.length > 0) {
+          console.log(`📹 [BUG-002] ${isLocal ? 'Local' : 'Remote'} video track:`, {
+            readyState: videoTracks[0].readyState,
+            enabled: videoTracks[0].enabled,
+            muted: videoTracks[0].muted,
+            label: videoTracks[0].label
+          });
+        } else {
+          console.warn(`⚠️ [BUG-002] No video tracks in ${isLocal ? 'local' : 'remote'} stream`);
+        }
+        
+        // Wait for metadata to load (with timeout)
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Metadata load timeout after 5s'));
+          }, 5000);
+          
+          const handleMetadata = () => {
+            clearTimeout(timeout);
+            videoElement.removeEventListener('loadedmetadata', handleMetadata);
+            resolve();
+          };
+          
+          // If metadata already loaded (readyState >= 1)
+          if (videoElement.readyState >= 1) {
+            clearTimeout(timeout);
+            resolve();
+            return;
+          }
+          
+          videoElement.addEventListener('loadedmetadata', handleMetadata);
+        });
+        
+        if (!isMounted) return;
+        
+        // BUG-002: Start muted to bypass autoplay policy
+        // For local video, always muted to prevent echo
+        // For remote video, start muted, then unmute after play succeeds
+        videoElement.muted = true;
+        
+        await videoElement.play();
+        
+        if (!isMounted) return;
+        
+        // For remote video, unmute after successful play (if not user-muted)
+        if (!isLocal && !isMuted) {
+          videoElement.muted = false;
+        }
+        
+        setIsPlaying(true);
+        console.log(`✅ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video playing successfully`);
+        
+      } catch (error) {
+        console.error(`❌ [BUG-002] Failed to play ${isLocal ? 'local' : 'remote'} video:`, error);
+        
+        if (!isMounted) return;
+        
+        // Retry with muted video as fallback
+        try {
+          videoElement.muted = true;
+          await videoElement.play();
+          
+          if (isMounted) {
+            setIsPlaying(true);
+            console.log(`⚠️ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video playing muted (autoplay policy)`);
+          }
+        } catch (retryError) {
+          console.error(`❌ [BUG-002] Failed to play ${isLocal ? 'local' : 'remote'} video even when muted:`, retryError);
+          if (isMounted) {
+            setHasError(true);
+          }
+        }
+      }
+    };
+
+    attachStream();
+
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      videoElement.srcObject = null;
+    };
+  }, [stream, isLocal, isMuted]);
+
+  // Handle track ended events
+  useEffect(() => {
+    if (!stream) return;
+
+    const handleTrackEnded = () => {
+      console.log(`🔴 [BUG-002] Video track ended for ${isLocal ? 'local' : 'remote'} stream`);
+      setIsPlaying(false);
+    };
+
+    const videoTracks = stream.getVideoTracks();
+    videoTracks.forEach(track => {
+      track.addEventListener('ended', handleTrackEnded);
+    });
+
+    return () => {
+      videoTracks.forEach(track => {
+        track.removeEventListener('ended', handleTrackEnded);
+      });
+    };
+  }, [stream, isLocal]);
 
   return (
     <div className={`relative rounded-lg overflow-hidden bg-gray-900 ${className}`}>
       {stream && !isVideoOff ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={isLocal} // Always mute local video to prevent feedback
-          className="w-full h-full object-cover"
-        />
+        <>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isLocal} // Always mute local video to prevent feedback
+            className="w-full h-full object-cover"
+            onLoadedMetadata={() => console.log(`📹 [BUG-002] ${isLocal ? 'Local' : 'Remote'} video metadata loaded`)}
+            onPlay={() => console.log(`▶️ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video play event`)}
+            onError={(e) => {
+              console.error(`❌ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video error:`, e);
+              setHasError(true);
+            }}
+          />
+          {/* BUG-002: Error overlay */}
+          {hasError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90">
+              <div className="text-center">
+                <svg className="w-8 h-8 text-red-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-white text-xs">Video unavailable</p>
+                <p className="text-gray-400 text-xs">Check camera permissions</p>
+              </div>
+            </div>
+          )}
+          {/* BUG-002: Loading indicator */}
+          {!isPlaying && !hasError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-gray-800">
           <div className="text-center">

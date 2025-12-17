@@ -1,11 +1,42 @@
 import Redis from 'ioredis';
 
-// Redis client configuration
-const redis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    password: process.env.REDIS_PASSWORD,
-});
+// Redis client configuration - lazy initialization
+let redis: Redis | null = null;
+let connectionFailed = false;
+
+function getRedisClient(): Redis {
+    if (connectionFailed) {
+        throw new Error('Redis connection failed - service unavailable');
+    }
+    
+    if (!redis) {
+        redis = new Redis({
+            host: process.env.REDIS_HOST || 'localhost',
+            port: parseInt(process.env.REDIS_PORT || '6379'),
+            password: process.env.REDIS_PASSWORD,
+            maxRetriesPerRequest: 3,
+            retryStrategy(times) {
+                if (times > 3) {
+                    connectionFailed = true;
+                    console.warn('⚠️ Redis connection failed - chat caching disabled');
+                    return null; // Stop retrying
+                }
+                return Math.min(times * 200, 1000);
+            },
+            lazyConnect: true,
+        });
+        
+        redis.on('error', (err) => {
+            console.error('✗ Redis connection error:', err.message);
+        });
+        
+        redis.on('connect', () => {
+            console.log('✓ Redis connected');
+        });
+    }
+    
+    return redis;
+}
 
 // Redis key prefixes
 const KEYS = {
@@ -65,14 +96,31 @@ export interface InvitationData {
 }
 
 export class RedisChatService {
-    private redis: Redis;
+    private getRedis(): Redis | null {
+        try {
+            return getRedisClient();
+        } catch {
+            return null;
+        }
+    }
 
-    constructor() {
-        this.redis = redis;
+    private get redis(): Redis {
+        const client = this.getRedis();
+        if (!client) {
+            throw new Error('Redis not available');
+        }
+        return client;
+    }
+    
+    // Check if Redis is available
+    isAvailable(): boolean {
+        return !connectionFailed && redis !== null;
     }
 
     // Chatroom operations
     async createChatroom(chatroom: ChatroomInfo): Promise<void> {
+        if (!this.getRedis()) return;
+        
         const key = KEYS.CHATROOM(chatroom.id);
         await this.redis.hset(key, {
             id: chatroom.id,

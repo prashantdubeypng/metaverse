@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bloom Filter Username Check Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .input-group {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px 40px 12px 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        input.available {
+            border-color: #10b981;
+        }
+        
+        input.taken {
+            border-color: #ef4444;
+        }
+        
+        .status-icon {
+            position: absolute;
+            right: 12px;
+            top: 38px;
+            width: 24px;
+            height: 24px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .message {
+            margin-top: 8px;
+            font-size: 14px;
+            min-height: 20px;
+        }
+        
+        .message.available {
+            color: #10b981;
+        }
+        
+        .message.taken {
+            color: #ef4444;
+        }
+        
+        .message.info {
+            color: #666;
+        }
+        
+        .stats {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        
+        .stats h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .stat-value {
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Bloom Filter Username Check</h1>
+        <p class="subtitle">Real-time username availability with 50k buckets & 3 hash functions</p>
+        
+        <div class="input-group">
+            <label for="username">Username</label>
+            <input 
+                type="text" 
+                id="username" 
+                placeholder="Type a username..."
+                autocomplete="off"
+            >
+            <div class="status-icon" id="statusIcon"></div>
+            <div class="message" id="message"></div>
+        </div>
+        
+        <div class="stats">
+            <h3>📊 Bloom Filter Statistics</h3>
+            <div id="statsContent">
+                <p style="color: #666; text-align: center;">Loading...</p>
+            </div>
+            <button class="refresh-btn" onclick="loadStats()">Refresh Stats</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api/v1';
+        let debounceTimer;
+        
+        const usernameInput = document.getElementById('username');
+        const statusIcon = document.getElementById('statusIcon');
+        const message = document.getElementById('message');
+        
+        usernameInput.addEventListener('input', (e) => {
+            const username = e.target.value.trim();
+            
+            // Clear previous timer
+            clearTimeout(debounceTimer);
+            
+            // Reset state
+            usernameInput.classList.remove('available', 'taken');
+            statusIcon.innerHTML = '';
+            message.className = 'message';
+            message.textContent = '';
+            
+            if (username.length === 0) {
+                return;
+            }
+            
+            if (username.length < 3) {
+                message.className = 'message info';
+                message.textContent = 'Username must be at least 3 characters';
+                return;
+            }
+            
+            // Show loading
+            statusIcon.innerHTML = '<div class="spinner"></div>';
+            message.className = 'message info';
+            message.textContent = 'Checking availability...';
+            
+            // Debounce API call
+            debounceTimer = setTimeout(() => {
+                checkUsername(username);
+            }, 500);
+        });
+        
+        async function checkUsername(username) {
+            try {
+                const response = await fetch(`${API_BASE}/auth/check-username/${encodeURIComponent(username)}`);
+                const data = await response.json();
+                
+                if (data.available) {
+                    usernameInput.classList.add('available');
+                    statusIcon.innerHTML = '<svg fill="currentColor" style="color: #10b981;" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>';
+                    message.className = 'message available';
+                    message.textContent = `✓ "${username}" is available ${data.checkedWithDb ? '(verified with DB)' : '(bloom filter says definitely available)'}`;
+                } else {
+                    usernameInput.classList.add('taken');
+                    statusIcon.innerHTML = '<svg fill="currentColor" style="color: #ef4444;" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>';
+                    message.className = 'message taken';
+                    message.textContent = `✗ "${username}" is already taken`;
+                }
+            } catch (error) {
+                console.error('Error checking username:', error);
+                statusIcon.innerHTML = '';
+                message.className = 'message taken';
+                message.textContent = 'Error checking availability';
+            }
+        }
+        
+        async function loadStats() {
+            const statsContent = document.getElementById('statsContent');
+            statsContent.innerHTML = '<p style="color: #666; text-align: center;">Loading...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/bloom-stats`);
+                const stats = await response.json();
+                
+                statsContent.innerHTML = `
+                    <div class="stat-row">
+                        <span class="stat-label">Bucket Size</span>
+                        <span class="stat-value">${stats.size.toLocaleString()} bits</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Hash Functions</span>
+                        <span class="stat-value">${stats.hashFunctions}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Memory Usage</span>
+                        <span class="stat-value">${stats.memoryUsageKB}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">False Positive Rate</span>
+                        <span class="stat-value">${stats.estimatedFPRPercentage}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                statsContent.innerHTML = '<p style="color: #ef4444; text-align: center;">Failed to load stats</p>';
+            }
+        }
+        
+        // Load stats on page load
+        loadStats();
+    </script>
+</body>
+</html>

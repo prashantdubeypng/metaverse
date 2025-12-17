@@ -1,16 +1,56 @@
 version: '3.8'
+
 services:
   postgres:
-    image: postgres:15
-    container_name: metaverse_postgres
+    image: postgres:15-alpine
+    container_name: metaverse_db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: metaverse_db
+      # Use C locale to avoid Windows/locale-related collation issues in template DB
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d metaverse_db -h 127.0.0.1 -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - metaverse_network
+    # ensure other services that depend on db will wait if using docker compose v2+ logic
+    # (compose v3 'depends_on' does not wait for health, so clients should retry)
+
+  redis:
+    image: redis:7-alpine
+    container_name: metaverse_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "redispassword"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a redispassword ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - metaverse_network
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  metaverse_network:
+    driver: bridge

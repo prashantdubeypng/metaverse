@@ -1,0 +1,188 @@
+version: '3.8'
+
+services:
+  # Redis - Shared state, caching, Pub/Sub
+  redis:
+    image: redis:7-alpine
+    container_name: metaverse-redis
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # PostgreSQL - Persistent data
+  postgres:
+    image: postgres:15-alpine
+    container_name: metaverse-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: metaverse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_change_in_prod}
+      POSTGRES_DB: metaverse
+      POSTGRES_MAX_CONNECTIONS: 200
+      POSTGRES_SHARED_BUFFERS: 256MB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metaverse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # WebSocket Server 1
+  ws1:
+    build:
+      context: ../
+      dockerfile: apps/ws/Dockerfile
+    container_name: metaverse-ws1
+    ports:
+      - "3001:3001"
+      - "3011:3011" # Health check port
+    environment:
+      NODE_ENV: development
+      SERVER_ID: ws1
+      WS_PORT: 3001
+      HEALTH_PORT: 3011
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://metaverse:${POSTGRES_PASSWORD:-dev_password_change_in_prod}@postgres:5432/metaverse
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # WebSocket Server 2
+  ws2:
+    build:
+      context: ../
+      dockerfile: apps/ws/Dockerfile
+    container_name: metaverse-ws2
+    ports:
+      - "3002:3001"
+      - "3012:3011"
+    environment:
+      NODE_ENV: development
+      SERVER_ID: ws2
+      WS_PORT: 3001
+      HEALTH_PORT: 3011
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://metaverse:${POSTGRES_PASSWORD:-dev_password_change_in_prod}@postgres:5432/metaverse
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # WebSocket Server 3
+  ws3:
+    build:
+      context: ../
+      dockerfile: apps/ws/Dockerfile
+    container_name: metaverse-ws3
+    ports:
+      - "3003:3001"
+      - "3013:3011"
+    environment:
+      NODE_ENV: development
+      SERVER_ID: ws3
+      WS_PORT: 3001
+      HEALTH_PORT: 3011
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://metaverse:${POSTGRES_PASSWORD:-dev_password_change_in_prod}@postgres:5432/metaverse
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Nginx Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: metaverse-nginx
+    ports:
+      - "80:80"
+      - "8080:8080" # Health check endpoint
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ws1
+      - ws2
+      - ws3
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: metaverse-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+
+  # Grafana - Metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: metaverse-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: redis-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  default:
+    name: metaverse-network

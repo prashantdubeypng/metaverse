@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import OfficeSpaceViewer from '@/components/OfficeSpaceViewer';
 import SpaceViewer from '@/components/SpaceViewer';
@@ -15,6 +15,11 @@ import NearbyUsersPanel from '@/components/NearbyUsersPanel';
 import ProximityManager from '@/components/ProximityManager';
 import ProximityVideoCallUI from '@/components/ProximityVideoCallUI';
 import websocketService from '@/services/websocket';
+// BUG-030 FIX: Focus tracking to prevent keyboard conflicts with UI
+import { useFocusTracker, useGlobalEscape } from '@/hooks/useFocusTracker';
+// BUG-027 FIX: Memory manager for long session stability
+import { memoryManager } from '@/services/memoryManager';
+import { debugLog, debugWarn } from '@/utils/logger';
 
 interface User {
   id: string;
@@ -88,6 +93,10 @@ export default function SpacePage() {
   const router = useRouter();
   const spaceId = params.id as string;
 
+  // BUG-030 FIX: Track when UI elements are focused to disable keyboard movement
+  const isUIFocused = useFocusTracker();
+  useGlobalEscape(); // Enable Escape key to blur focused elements
+
   const [space, setSpace] = useState<Space | null>(null);
   const [elements, setElements] = useState<SpaceElement[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -123,6 +132,13 @@ export default function SpacePage() {
 
   // Grid system constants
   const GRID_SIZE = 20; // Each grid cell is 20x20 pixels
+  
+  /**
+   * BUG-027 FIX: Maximum messages per chatroom to prevent unbounded memory growth
+   * Old messages beyond this limit are discarded when new messages arrive.
+   * This prevents memory from growing indefinitely during long sessions.
+   */
+  const MAX_MESSAGES_PER_ROOM = 100;
 
   // Video call integration - only initialize when user data is available
   const shouldEnableVideoCalls = currentUser && currentUser.id && currentUser.username;
@@ -171,12 +187,72 @@ export default function SpacePage() {
     endCall: async () => {}
   };
 
-  // Cleanup on unmount
+  /**
+   * BUG-027 FIX: Memory Manager Initialization and Cleanup
+   * 
+   * Starts the memory manager when the component mounts and registers
+   * cleanup callbacks for chat messages and WebSocket listeners.
+   * This ensures long sessions don't accumulate unbounded memory.
+   */
   useEffect(() => {
+    debugLog('🧹 Initializing memory manager for space page');
+    
+    // Start memory monitoring
+    memoryManager.start();
+    
+    // Register cleanup for chat messages (trim old messages in inactive rooms)
+    memoryManager.registerCleanup('chatMessages', () => {
+      debugLog('🧹 Running chat message cleanup');
+      setChatMessages(prev => {
+        // Only keep rooms that are currently active
+        const newMap = new Map<string, ChatMessage[]>();
+        for (const [roomId, messages] of prev.entries()) {
+          if (activeChatrooms.has(roomId)) {
+            // Keep only last MAX_MESSAGES_PER_ROOM messages
+            newMap.set(roomId, messages.slice(-MAX_MESSAGES_PER_ROOM));
+          }
+          // Inactive rooms are not copied (they get garbage collected)
+        }
+        const removed = prev.size - newMap.size;
+        if (removed > 0) {
+          debugLog(`🧹 Cleaned up ${removed} inactive chatroom message caches`);
+        }
+        return newMap;
+      });
+    }, 5);
+    
+    // Register cleanup for stale users (users who haven't moved in a long time)
+    memoryManager.registerCleanup('staleUsers', () => {
+      const listenerLeaks = websocketService.checkForListenerLeaks();
+      if (listenerLeaks.length > 0) {
+        debugWarn('⚠️ Potential listener leaks detected:', listenerLeaks);
+      }
+      
+      // Log total listener count for monitoring
+      const totalListeners = websocketService.getTotalListenerCount();
+      debugLog(`📊 WebSocket listeners: ${totalListeners}`);
+    }, 10);
+    
     return () => {
-      // Cleanup handled by websocket service
+      debugLog('🧹 Stopping memory manager and cleaning up');
+      
+      // Unregister cleanup callbacks
+      memoryManager.unregisterCleanup('chatMessages');
+      memoryManager.unregisterCleanup('staleUsers');
+      
+      // Stop memory monitoring
+      memoryManager.stop();
+      
+      // Clear all state to free memory
+      setUsers([]);
+      setChatMessages(new Map());
+      setActiveChatrooms(new Set());
+      _setOnlineUsers(new Map());
+      
+      // Disconnect websocket cleanly
+      websocketService.disconnect();
     };
-  }, []);
+  }, []); // Note: activeChatrooms is intentionally not in deps to avoid re-registering on every change
 
   // User movement handler
   const handleUserMove = useCallback((x: number, y: number) => {
@@ -241,8 +317,16 @@ export default function SpacePage() {
   }, [currentUser, space, isConnected, shouldEnableVideoCalls, proximityVideoCall]);
 
   // Keyboard movement controls
+  // BUG-030 FIX: Only handle keyboard movement when UI is not focused
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
+      // BUG-030 FIX: Don't intercept keyboard events when user is typing in a form field
+      // This prevents arrow keys from moving the avatar while user is typing in chat
+      if (isUIFocused) {
+        // Still allow Escape to blur (handled by useGlobalEscape)
+        return;
+      }
+      
       console.log('🎹 Key pressed:', event.code, event.key);
       
       if (!currentUser || !space) {
@@ -350,7 +434,34 @@ export default function SpacePage() {
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, [currentUser, space, handleUserMove]);
+  }, [currentUser, space, handleUserMove, isUIFocused]); // BUG-030: Added isUIFocused dependency
+
+  /**
+   * BUG-029 FIX: Handle tab visibility changes to refresh state
+   * When tab becomes visible after being hidden, request fresh state from server
+   * This prevents stale user positions after tab sleep or suspension
+   */
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[Visibility] Tab hidden - connection may become stale');
+      } else {
+        console.log('[Visibility] Tab visible - checking connection state');
+        // Only refresh if we were connected
+        if (isConnected && spaceId) {
+          console.log('[Visibility] Requesting fresh room state');
+          // Request fresh state from server
+          websocketService.send('request-room-state', { spaceId });
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isConnected, spaceId]);
 
   const fetchSpaceData = useCallback(async () => {
     try {
@@ -572,9 +683,10 @@ export default function SpacePage() {
           createdAt: msg.createdAt,
           timestamp: new Date(msg.createdAt)
         }));
+        // BUG-027 FIX: Cap messages per room to prevent unbounded memory growth
         setChatMessages(prev => {
           const newMap = new Map(prev);
-          newMap.set(chatroomId, messages);
+          newMap.set(chatroomId, messages.slice(-MAX_MESSAGES_PER_ROOM));
           return newMap;
         });
         console.log('✅ Loaded message history for chatroom:', chatroomId, messages);
@@ -656,7 +768,8 @@ export default function SpacePage() {
 
   // (duplicate loadMessageHistory removed)
 
-  // Send chat message
+  // Send chat message with acknowledgment tracking
+  // BUG-024 FIX: Add optimistic UI and delivery confirmation
   const sendChatMessage = useCallback((chatroomId: string, content: string, type: 'text' | 'image' | 'file' = 'text') => {
     if (!activeChatrooms.has(chatroomId)) {
       console.error('❌ Not in chatroom:', chatroomId);
@@ -668,6 +781,32 @@ export default function SpacePage() {
       console.error('❌ WebSocket not connected');
       setChatError('Connection lost');
       return;
+    }
+    
+    // Generate a local ID for optimistic UI update
+    const localId = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    // BUG-024 FIX: Add optimistic message to UI immediately
+    const tokenData = getTokenData();
+    if (tokenData?.user) {
+      const optimisticMessage: ChatMessage = {
+        id: localId,
+        content,
+        userId: tokenData.user.id,
+        user: { id: tokenData.user.id, username: tokenData.user.username || 'You' },
+        chatroomId,
+        type,
+        createdAt: new Date().toISOString(),
+        timestamp: new Date()
+      };
+      
+      // BUG-027 FIX: Cap messages per room to prevent unbounded memory growth
+      setChatMessages(prev => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(chatroomId) || [];
+        newMap.set(chatroomId, [...existing, optimisticMessage].slice(-MAX_MESSAGES_PER_ROOM));
+        return newMap;
+      });
     }
     
     websocketService.send('chat-message', {
@@ -783,6 +922,11 @@ export default function SpacePage() {
       setConnectionStatus('In Space');
     });
 
+    /**
+     * BUG-029 FIX: Handle user joining space
+     * Replace any existing entry for this user ID to prevent stale position
+     * This handles the case where a user reconnects and their old position was cached
+     */
     websocketService.on('user-joined-space', (payload: { userId: string; username?: string; spawn?: { x?: number; y?: number } }) => {
       console.log('👤 New user joined:', payload);
       const newUser = {
@@ -791,7 +935,13 @@ export default function SpacePage() {
         x: (payload.spawn?.x || 1) * GRID_SIZE,
         y: (payload.spawn?.y || 1) * GRID_SIZE
       };
-      setUsers(prev => [...prev, newUser]);
+      
+      // BUG-029 FIX: Remove any existing entry for this user before adding
+      // This ensures we don't have stale position data from previous connections
+      setUsers(prev => {
+        const filtered = prev.filter(u => u.id !== payload.userId);
+        return [...filtered, newUser];
+      });
     });
 
     websocketService.on('user-moved', (payload: { userId: string; x: number; y: number }) => {
@@ -871,10 +1021,44 @@ export default function SpacePage() {
         timestamp: new Date(payload.createdAt || payload.timestamp || Date.now())
       };
       
+      // BUG-024 FIX: Deduplicate messages to prevent showing message twice
+      // (once from optimistic UI and once from server confirmation)
+      // BUG-027 FIX: Cap messages per room to prevent unbounded memory growth
       setChatMessages(prev => {
         const newMap = new Map(prev);
         const existing = newMap.get(chatroomId) || [];
-        newMap.set(chatroomId, [...existing, newMessage]);
+        
+        // Check if message already exists (by content and timestamp proximity for optimistic messages)
+        const isDuplicate = existing.some(msg => {
+          // Exact ID match
+          if (msg.id === payload.messageId) return true;
+          // Optimistic message match (same content, same user, within 5 seconds)
+          if (msg.id.startsWith('local_') && 
+              msg.content === payload.content && 
+              msg.userId === payload.userId) {
+            const timeDiff = Math.abs(new Date(msg.createdAt).getTime() - Date.now());
+            return timeDiff < 5000; // Within 5 seconds = same message
+          }
+          return false;
+        });
+        
+        if (isDuplicate) {
+          // Replace optimistic message with server-confirmed one
+          const updatedExisting = existing.map(msg => {
+            if (msg.id.startsWith('local_') && 
+                msg.content === payload.content && 
+                msg.userId === payload.userId) {
+              return { ...newMessage, id: payload.messageId }; // Use server ID
+            }
+            return msg;
+          });
+          // BUG-027: Keep only last N messages
+          newMap.set(chatroomId, updatedExisting.slice(-MAX_MESSAGES_PER_ROOM));
+        } else {
+          // BUG-027: Keep only last N messages
+          newMap.set(chatroomId, [...existing, newMessage].slice(-MAX_MESSAGES_PER_ROOM));
+        }
+        
         return newMap;
       });
     });
@@ -888,6 +1072,41 @@ export default function SpacePage() {
     websocketService.on('chat-error', (payload: { message?: string }) => {
       console.error('❌ Chat error:', payload);
       setChatError(payload.message || 'Chat error occurred');
+    });
+
+    /**
+     * BUG-029 FIX: Handle room state refresh response
+     * Updates user positions with fresh data from server
+     * Called after tab becomes visible or when requesting fresh state
+     */
+    websocketService.on('room-state-refresh', (payload: { 
+      spaceId: string; 
+      users: Array<{ userId: string; username: string; x: number; y: number }>;
+      timestamp: number;
+    }) => {
+      console.log('🔄 [STATE REFRESH] Received fresh room state:', payload);
+      
+      // Update users with fresh positions
+      const freshUsers = payload.users.map(user => ({
+        id: user.userId,
+        username: user.username,
+        x: user.x * GRID_SIZE, // Convert grid to pixel coordinates
+        y: user.y * GRID_SIZE
+      }));
+      
+      setUsers(prev => {
+        // Merge: prefer fresh data, but keep any users not in the refresh
+        const userMap = new Map(prev.map(u => [u.id, u]));
+        freshUsers.forEach(u => userMap.set(u.id, u));
+        
+        // Remove self if present in the list
+        if (currentUser) {
+          userMap.delete(currentUser.id);
+        }
+        
+        console.log(`🔄 [STATE REFRESH] Updated ${freshUsers.length} users`);
+        return Array.from(userMap.values());
+      });
     });
 
     websocketService.on('error', (payload: { message?: string }) => {
@@ -978,10 +1197,21 @@ export default function SpacePage() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  /**
+   * Handle Enter key press in chat input
+   * BUG-030 FIX: Blur input after sending to return keyboard control to game
+   */
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+      // BUG-030 FIX: Blur input to return focus to game canvas
+      // This allows arrow keys to move avatar immediately after sending a message
+      (e.target as HTMLInputElement).blur();
+    }
+    // BUG-030 FIX: Also allow Escape to close chat/blur input
+    if (e.key === 'Escape') {
+      (e.target as HTMLInputElement).blur();
     }
   };
 
@@ -1081,6 +1311,15 @@ export default function SpacePage() {
             <div>Other Users: {users.length}</div>
             <div>Total Users: {currentUser ? users.length + 1 : users.length}</div>
           </div>
+          
+          {/* BUG-030 FIX: Show hint when keyboard controls are disabled due to focus */}
+          {isUIFocused && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 
+                          bg-yellow-500/90 text-black px-4 py-2 rounded-lg 
+                          text-sm font-medium z-50 shadow-lg animate-pulse">
+              ⌨️ Press <kbd className="bg-white/50 px-1.5 py-0.5 rounded mx-1">Esc</kbd> or click canvas to enable movement
+            </div>
+          )}
           
           <OfficeSpaceViewer
             space={space}

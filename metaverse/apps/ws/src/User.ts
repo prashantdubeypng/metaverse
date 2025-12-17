@@ -1,3 +1,34 @@
+/**
+ * User.ts - WebSocket User Connection Handler
+ * 
+ * PURPOSE:
+ * This module handles individual WebSocket connections for users in the metaverse.
+ * Each User instance represents a single connected client and manages:
+ * - Authentication via JWT tokens
+ * - Joining/leaving virtual spaces
+ * - Movement within spaces
+ * - Chat messaging via Redis pub/sub and Kafka
+ * - Video calls (both direct and proximity-based)
+ * 
+ * MESSAGE TYPES HANDLED:
+ * - join: Join a virtual space with authentication
+ * - move: Move within the current space
+ * - leave: Leave the current space
+ * - chat-join/message/leave: Chat room operations
+ * - video-call-signaling/end: Direct video calls
+ * - proximity-*: Proximity-based video call operations
+ * - authenticate: Pre-authenticate before joining
+ * - heartbeat: Connection health checks
+ * 
+ * COORDINATE SYSTEM:
+ * - All coordinates are in GRID units (not pixels)
+ * - Grid size is 20 pixels per unit
+ * - Example: Grid (10, 15) = Pixel (200, 300)
+ * 
+ * @author GitHub Copilot
+ * @see docs/system-design/websocket-architecture.md
+ */
+
 import { Roommanager } from './Roommanager';
 import { outgoingmessage, IncomingMessage, JoinPayload, MovePayload, UserPosition } from './types';
 import { WebSocket } from 'ws';
@@ -8,6 +39,12 @@ import { RedisService } from './RedisService';
 import { KafkaChatService } from './KafkaChatService';
 import { VideoCallManager } from './VideoCallManager';
 
+/**
+ * Generates a random unique identifier for user connections
+ * 
+ * @param length - Length of the ID (default: 15)
+ * @returns A random alphanumeric string with special characters
+ */
 function getRandomIdForUser(length = 15): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$%&*';
     let result = '';
@@ -17,19 +54,55 @@ function getRandomIdForUser(length = 15): string {
     return result;
 }
 
+/**
+ * User class - Represents a single WebSocket connection
+ * 
+ * Each instance manages:
+ * - WebSocket connection lifecycle
+ * - User authentication state
+ * - Position within virtual spaces
+ * - Active chat room subscriptions
+ * - Video call state
+ */
 export class User {
+    /** Unique connection ID (not user ID - changes each connection) */
     public id: string;
+    
+    /** ID of the space the user is currently in */
     private spaceId?: string;
+    
+    /** User's account ID from database */
     private userId?: string;
+    
+    /** User's display name */
     private username?: string;
+    
+    /** Current X position in grid coordinates */
     private x: number;
+    
+    /** Current Y position in grid coordinates */
     private y: number;
+    
+    /** Whether the connection is still active */
     private isAlive: boolean = true;
+    
+    /** Set of chatroom IDs this user is currently subscribed to */
     private activeChatrooms: Set<string> = new Set();
+    
+    /** Redis service for pub/sub and caching */
     private redisService: RedisService;
+    
+    /** Kafka service for message persistence */
     private kafkaService: KafkaChatService;
+    
+    /** Video call manager for WebRTC coordination */
     private videoCallManager: VideoCallManager;
 
+    /**
+     * Creates a new User instance for a WebSocket connection
+     * 
+     * @param ws - The WebSocket connection to wrap
+     */
     constructor(private ws: WebSocket) {
         this.id = getRandomIdForUser();
         this.x = 0;
@@ -39,7 +112,17 @@ export class User {
         this.videoCallManager = VideoCallManager.getInstance();
     }
 
+    /**
+     * Initializes WebSocket event handlers
+     * 
+     * Sets up handlers for:
+     * - message: Process incoming messages
+     * - error: Log connection errors
+     * - close: Clean up on disconnect
+     * - pong: Heartbeat response
+     */
     public initHandlers(): void {
+        // Handle incoming messages
         this.ws.on('message', async (data) => {
             if (!this.isAlive) return;
 
@@ -55,111 +138,159 @@ export class User {
             }
         });
 
+        // Log errors but don't crash
         this.ws.on('error', (error) => {
             console.error(`WebSocket error for user ${this.id}:`, error);
         });
 
+        // Clean up on disconnect
         this.ws.on('close', () => {
             this.isAlive = false;
             this.destroy();
         });
 
-        // Heartbeat to detect broken connections
+        // Heartbeat detection for broken connections
         this.ws.on('pong', () => {
             console.log(`Heartbeat received from user ${this.id}`);
         });
     }
 
+    /**
+     * Main message router - dispatches messages to appropriate handlers
+     * 
+     * This switch statement routes each message type to its handler.
+     * IMPORTANT: Each case should appear only ONCE to avoid duplicate handling.
+     * 
+     * @param parseData - The parsed incoming message
+     */
     private async handleMessage(parseData: IncomingMessage): Promise<void> {
         console.log(`📨 [MESSAGE RECEIVED] User ${this.username || this.id} sent message type: ${parseData.type}`, parseData.payload);
 
         switch (parseData.type) {
+            // ================================================================
+            // SPACE MANAGEMENT
+            // ================================================================
+            
             case 'join':
+                // User wants to join a virtual space
                 await this.handleJoin(parseData.payload as JoinPayload);
                 break;
+                
             case 'move':
+                // User wants to move within their current space
                 console.log(`🚶 [MOVE MESSAGE] Processing move request for ${this.username || this.id}`);
                 await this.handleMove(parseData.payload as MovePayload);
                 break;
+                
             case 'leave':
+                // User wants to leave their current space
                 console.log(`👋 [LEAVE MESSAGE] Processing leave request for ${this.username || this.id}`);
                 this.handleLeave();
                 break;
+            
+            // ================================================================
+            // CHAT OPERATIONS
+            // ================================================================
+            
             case 'chat-join':
+                // User wants to join a chat room
                 console.log(`💬 [CHAT JOIN] Processing chat join for ${this.username || this.id}`);
                 await this.handleChatJoin(parseData.payload);
                 break;
+                
             case 'chat-message':
+                // User is sending a chat message
                 console.log(`💬 [CHAT MESSAGE] Processing chat message from ${this.username || this.id}`);
                 await this.handleChatMessage(parseData.payload);
                 break;
+                
             case 'chat-leave':
+                // User wants to leave a chat room
                 console.log(`💬 [CHAT LEAVE] Processing chat leave for ${this.username || this.id}`);
                 await this.handleChatLeave(parseData.payload);
                 break;
+            
+            // ================================================================
+            // DIRECT VIDEO CALLS
+            // ================================================================
+            
             case 'video-call-signaling':
+                // WebRTC signaling for direct video calls
                 console.log(`🎥 [VIDEO SIGNALING] Processing WebRTC signaling from ${this.username || this.id}`);
                 this.handleVideoSignaling(parseData.payload);
                 break;
+                
             case 'video-call-end':
+                // User ending a direct video call
                 console.log(`🎥 [VIDEO END] Processing video call end from ${this.username || this.id}`);
                 this.handleVideoCallEnd(parseData.payload);
                 break;
+            
+            // ================================================================
+            // PROXIMITY-BASED VIDEO CALLS
+            // These are automatically triggered when users are within 2 tiles
+            // ================================================================
+            
             case 'proximity-video-call-signal':
+                // WebRTC signaling for proximity-based video calls
                 console.log(`🎥 [PROXIMITY SIGNALING] Processing proximity video signal from ${this.username || this.id}`);
                 this.handleProximityVideoSignaling(parseData.payload);
                 break;
+                
             case 'proximity-position-update':
+                // Position update for proximity detection
                 console.log(`📍 [PROXIMITY POSITION] Processing position update from ${this.username || this.id}`);
                 this.handleProximityPositionUpdate(parseData.payload);
                 break;
+                
             case 'proximity-video-call-ended':
+                // User ending a proximity video call
                 console.log(`🎥 [PROXIMITY END] Processing proximity call end from ${this.username || this.id}`);
                 this.handleProximityVideoCallEnd(parseData.payload);
                 break;
+                
             case 'proximity-heartbeat':
+                // Heartbeat for proximity video call health
                 console.log(`💓 [PROXIMITY HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
                 this.handleProximityHeartbeat(parseData.payload);
                 break;
+            
+            // ================================================================
+            // AUTHENTICATION & HEALTH
+            // ================================================================
+            
             case 'authenticate':
+                // Pre-authentication before joining a space
                 console.log(`🔐 [AUTHENTICATE] Processing authentication from connection ${this.id}`);
                 await this.handleAuthenticate(parseData);
                 break;
+                
             case 'heartbeat':
+                // Connection health check request
                 console.log(`💓 [HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
                 this.handleHeartbeat(parseData.payload);
                 break;
+                
             case 'heartbeat-response':
-                console.log(`💓 [HEARTBEAT RESPONSE] Received heartbeat response from ${this.username || this.id}`);
-                // Just acknowledge - no action needed
-                break;
-            case 'proximity-video-call-signal':
-                console.log(`🎥 [PROXIMITY SIGNALING] Processing proximity WebRTC signaling from ${this.username || this.id}`);
-                this.handleProximityVideoSignaling(parseData.payload);
-                break;
-            case 'proximity-position-update':
-                console.log(`📍 [PROXIMITY POSITION] Processing position update from ${this.username || this.id}`);
-                this.handleProximityPositionUpdate(parseData.payload);
-                break;
-            case 'proximity-video-call-ended':
-                console.log(`🎥 [PROXIMITY END] Processing proximity video call end from ${this.username || this.id}`);
-                this.handleProximityVideoCallEnd(parseData.payload);
-                break;
-            case 'proximity-heartbeat':
-                console.log(`💓 [PROXIMITY HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
-                this.handleProximityHeartbeat(parseData.payload);
-                break;
-            case 'authenticate':
-                console.log(`🔐 [AUTH] Processing authentication from connection ${this.id}`);
-                await this.handleAuthenticate(parseData);
-                break;
-            case 'heartbeat':
-                console.log(`💓 [HEARTBEAT] Processing heartbeat from ${this.username || this.id}`);
-                this.handleHeartbeat(parseData.payload);
-                break;
-            case 'heartbeat-response':
+                // Response to our heartbeat (just acknowledge, no action needed)
                 console.log(`💓 [HEARTBEAT RESPONSE] Received heartbeat response from ${this.username || this.id}`);
                 break;
+            
+            // ================================================================
+            // STATE REFRESH (BUG-029 FIX)
+            // ================================================================
+            
+            case 'request-room-state':
+                // Client requesting fresh room state (e.g., after tab becomes visible)
+                // BUG-029 FIX: Send fresh user positions after tab visibility change
+                console.log(`🔄 [STATE REFRESH] Processing room state request from ${this.username || this.id}`);
+                await this.handleRequestRoomState(parseData.payload);
+                break;
+            
+            // ================================================================
+            // UNKNOWN MESSAGE TYPE
+            // ================================================================
+            
             default:
                 console.log(`❓ [UNKNOWN MESSAGE] Invalid message type: ${parseData.type} from ${this.username || this.id}`);
                 this.send({
@@ -170,12 +301,26 @@ export class User {
         }
     }
 
+    /**
+     * Handles a user joining a virtual space
+     * 
+     * This method:
+     * 1. Validates the JWT authentication token
+     * 2. Verifies the space exists in the database
+     * 3. Calculates a spawn position (avoiding overlap with other users)
+     * 4. Adds the user to the room manager
+     * 5. Broadcasts the join event to other users
+     * 6. Sends the current user list to the joining user
+     * 
+     * @param payload - Contains spaceId and authentication token
+     */
     private async handleJoin(payload: JoinPayload): Promise<void> {
         const { spaceId, token } = payload;
         
         console.log(`🔐 [AUTH] Processing join request for space: ${spaceId}`);
         console.log(`🔑 [AUTH] Token provided: ${token ? 'Yes' : 'No'}`);
 
+        // Validate token is provided
         if (!token) {
             console.log('❌ [AUTH] No token provided');
             this.ws.close(1008, 'No token provided');
@@ -185,7 +330,7 @@ export class User {
         try {
             console.log(`🔍 [AUTH] Verifying JWT token with secret: ${jwt_password.substring(0, 5)}...`);
             
-            // Verify JWT token
+            // Step 1: Verify JWT token and extract user info
             const decoded = jwt.verify(token, jwt_password) as JwtPayload;
             const userId = decoded.userId;
             const username = decoded.username;
@@ -198,12 +343,13 @@ export class User {
                 return;
             }
 
+            // Store authenticated user info
             this.userId = userId;
             this.username = username;
             
             console.log(`🏢 [SPACE] Checking if space exists: ${spaceId}`);
 
-            // Verify space exists
+            // Step 2: Verify the space exists in the database
             const space = await client.space.findFirst({
                 where: { id: spaceId }
             });
@@ -218,24 +364,26 @@ export class User {
 
             this.spaceId = spaceId;
             
-            // Calculate fixed spawn position to avoid overlap
+            // Step 3: Calculate spawn position
+            // We use a grid pattern to avoid users spawning on top of each other
             const currentUserCount = Roommanager.getInstance().getUserCount(spaceId);
-            const spawnX = 2 + (currentUserCount % 5); // Spawn in a grid pattern starting at x=2
+            const spawnX = 2 + (currentUserCount % 5); // Spawn in columns of 5
             const spawnY = 2 + Math.floor(currentUserCount / 5); // New row every 5 users
             
-            // Ensure spawn position is within space boundaries (use grid coordinates)
-            const maxGridX = Math.floor((space.width || 800) / 20) - 1; // Convert pixels to grid, -1 for padding
-            const maxGridY = Math.floor((space.height || 600) / 20) - 1; // Convert pixels to grid, -1 for padding
+            // Ensure spawn position is within space boundaries
+            // Convert pixel dimensions to grid coordinates
+            const maxGridX = Math.floor((space.width || 800) / 20) - 1;
+            const maxGridY = Math.floor((space.height || 600) / 20) - 1;
             
             this.x = Math.min(spawnX, maxGridX);
             this.y = Math.min(spawnY, maxGridY);
 
             console.log(`🎯 [SPAWN] User ${username} (#${currentUserCount}) spawned at fixed grid position (${this.x}, ${this.y}) in space ${spaceId} with boundaries ${maxGridX}x${maxGridY}`);
 
-            // Add user to room manager (now async for Redis)
+            // Step 4: Add user to room manager (handles Redis update internally)
             await Roommanager.getInstance().addUser(spaceId, this);
 
-            // Broadcast user joined to others
+            // Step 5: Broadcast join event to other users in the space
             Roommanager.getInstance().broadCast({
                 type: 'user-joined-space',
                 payload: {
@@ -246,16 +394,17 @@ export class User {
                 }
             }, this, this.spaceId);
 
-            // Get users from both memory AND Redis (for reconnection resilience)
+            // Step 6: Get all users for the joining user
+            // We merge users from both memory (current connections) and Redis (for recovery)
             const currentUsers = Roommanager.getInstance().getSpaceUsers(spaceId);
-            const redisUsers = await Roommanager.getInstance().getUsersFromRedis(spaceId);
+            const redisUsers = await Roommanager.getInstance().getSpaceUsersFromRedis(spaceId);
             
-            // Merge users from memory and Redis, removing duplicates
+            // Create a map to deduplicate users
             const userMap = new Map<string, any>();
             
-            // Add current connected users from memory (priority)
+            // Add current connected users from memory (these are authoritative)
             currentUsers
-                .filter(user => user.id !== this.id)
+                .filter(user => user.id !== this.id) // Exclude self
                 .forEach(user => {
                     const uid = user.getUserId();
                     if (uid) {
@@ -268,9 +417,9 @@ export class User {
                     }
                 });
             
-            // Add users from Redis if not already in memory (reconnection case)
+            // Add users from Redis if not already in memory (handles recovery case)
             redisUsers
-                .filter(user => user.userId !== this.userId)
+                .filter(user => user.userId !== this.userId) // Exclude self
                 .forEach(user => {
                     if (!userMap.has(user.userId)) {
                         userMap.set(user.userId, {
@@ -286,7 +435,7 @@ export class User {
             
             console.log(`📊 [SPACE JOIN] Sending ${allUsers.length} users to ${username}: ${currentUsers.length} from memory, ${redisUsers.length} from Redis`);
             
-            // Send join confirmation with merged user list
+            // Send join confirmation with user list and spawn position
             this.send({
                 type: 'space-joined',
                 payload: {
@@ -302,8 +451,11 @@ export class User {
 
         } catch (error) {
             console.error('❌ [AUTH ERROR] Error during join:', error);
+            console.error('❌ [AUTH ERROR] Error name:', error instanceof Error ? error.name : 'Unknown');
+            console.error('❌ [AUTH ERROR] Error message:', error instanceof Error ? error.message : String(error));
+            console.error('❌ [AUTH ERROR] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
             
-            // Provide more specific error messages
+            // Provide specific error messages based on error type
             if (error instanceof jwt.JsonWebTokenError) {
                 console.error('❌ [JWT ERROR] Invalid JWT token:', error.message);
                 this.ws.close(1008, `JWT Error: ${error.message}`);
@@ -311,8 +463,9 @@ export class User {
                 console.error('❌ [JWT ERROR] Token expired:', error.message);
                 this.ws.close(1008, 'Token expired');
             } else {
-                console.error('❌ [AUTH ERROR] General authentication error:', error);
-                this.ws.close(1008, 'Authentication failed');
+                const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
+                console.error('❌ [AUTH ERROR] General authentication error:', errorMessage);
+                this.ws.close(1008, `Authentication failed: ${errorMessage}`);
             }
         }
     }
@@ -385,7 +538,7 @@ export class User {
             
             // Update position in Redis
             if (this.userId) {
-                await Roommanager.getInstance().updateUserPositionInRedis(this.spaceId, this.userId, moveX, moveY);
+                await Roommanager.getInstance().updateUserPosition(this.spaceId, this.userId, moveX, moveY);
             }
 
             // Send movement confirmation to the user
@@ -549,15 +702,26 @@ export class User {
     private handleProximityPositionUpdate(payload: any): void {
         if (!this.userId || !this.spaceId) return;
 
-        const { x, y, z } = payload;
+        // BUG FIX: Frontend sends position nested inside payload.position object
+        // Extract correctly from the nested structure
+        const position = payload.position || payload;
+        const { x, y, z } = position;
         
-        // Update user position
+        // Update user position if valid grid coordinates are provided
         if (typeof x === 'number' && typeof y === 'number') {
-            this.x = x;
-            this.y = y;
+            // Validate that coordinates are reasonable grid values (not pixel values)
+            // Grid coordinates should typically be small integers (0-40 for an 800px space)
+            const maxReasonableGridCoord = 100; // Reasonable upper bound for grid coordinate
+            if (x <= maxReasonableGridCoord && y <= maxReasonableGridCoord) {
+                this.x = x;
+                this.y = y;
+                console.log(`📍 [PROXIMITY POSITION] User ${this.username} updated position to grid (${this.x}, ${this.y})`);
+            } else {
+                console.log(`⚠️ [PROXIMITY POSITION] Rejected large coordinates (${x}, ${y}) - likely pixels sent instead of grid`);
+            }
+        } else {
+            console.log(`⚠️ [PROXIMITY POSITION] Invalid position data received:`, payload);
         }
-
-        console.log(`📍 [PROXIMITY POSITION] User ${this.username} updated position to (${this.x}, ${this.y})`);
 
         // Check for proximity video call updates
         this.videoCallManager.handleUserMovement(this);
@@ -609,24 +773,30 @@ export class User {
     private handleProximityHeartbeat(payload: any): void {
         if (!this.userId) return;
 
-        const { position, timestamp } = payload;
+        const { timestamp } = payload;
         
-        // Update position if provided
-        if (position && typeof position.x === 'number' && typeof position.y === 'number') {
-            this.x = position.x;
-            this.y = position.y;
-        }
+        // BUG FIX: Do NOT update position from heartbeat!
+        // The frontend sends pixel coordinates, but backend stores grid coordinates.
+        // Position should only be updated through the 'move' message which properly
+        // validates and stores grid coordinates. The heartbeat position was corrupting
+        // the user's actual position (e.g., pixel 1200 being stored as grid 1200,
+        // which would be 24000 pixels when converted back).
+        // 
+        // If we need the position for proximity calculations, we already have it
+        // stored correctly as this.x and this.y (in grid coordinates).
 
         // Send heartbeat response
         this.send({
             type: 'proximity-heartbeat-response',
             payload: {
                 timestamp: Date.now(),
-                serverReceived: timestamp
+                serverReceived: timestamp,
+                // Send back the correct grid position for the frontend to verify
+                position: { x: this.x, y: this.y }
             }
         });
 
-        // Check proximity for video calls
+        // Check proximity for video calls using the correct server-side position
         this.videoCallManager.handleUserMovement(this);
     }
 
@@ -697,6 +867,60 @@ export class User {
             payload: {
                 timestamp: Date.now(),
                 serverTime: new Date().toISOString()
+            }
+        });
+    }
+
+    /**
+     * BUG-029 FIX: Handle request for fresh room state
+     * 
+     * Called when client needs to refresh state, typically after:
+     * - Tab becoming visible after being hidden
+     * - Network reconnection
+     * - Suspected stale state
+     * 
+     * Sends back the current list of users in the space with their latest positions.
+     * 
+     * @param payload - Contains spaceId to get state for
+     */
+    private async handleRequestRoomState(payload: { spaceId?: string }): Promise<void> {
+        const targetSpaceId = payload?.spaceId || this.spaceId;
+        
+        if (!targetSpaceId) {
+            console.log(`⚠️ [STATE REFRESH] No space ID for state request`);
+            this.send({
+                type: 'room-state-error',
+                payload: { message: 'Not in a space' }
+            });
+            return;
+        }
+        
+        // Get current users from room manager using singleton
+        const currentUsers = Roommanager.getInstance().getUsersInSpace(targetSpaceId);
+        
+        // Map to user position data, excluding self
+        const userPositions: UserPosition[] = currentUsers
+            .filter(user => user.getUserId() !== this.userId)
+            .map(user => {
+                const pos = user.getPosition();
+                return {
+                    userId: user.getUserId() || '',
+                    username: user.getUsername() || '',
+                    x: pos?.x || 0,
+                    y: pos?.y || 0
+                };
+            })
+            .filter(u => u.userId !== ''); // Filter out invalid entries
+        
+        console.log(`📤 [STATE REFRESH] Sending ${userPositions.length} users to ${this.username}`);
+        
+        // Send fresh state to client
+        this.send({
+            type: 'room-state-refresh',
+            payload: {
+                spaceId: targetSpaceId,
+                users: userPositions,
+                timestamp: Date.now()
             }
         });
     }

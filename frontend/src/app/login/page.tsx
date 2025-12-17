@@ -46,26 +46,27 @@ export default function LoginPage() {
 
       const data = await response.json();
 
-      // Store token and decode user data from JWT
-      if (data.token) {
+      // Store token and user data
+      // Backend returns: { user, accessToken, expiresIn }
+      if (data.accessToken) {
         // Decode JWT to get user info (simple base64 decode for payload)
-        const tokenParts = data.token.split('.');
+        const tokenParts = data.accessToken.split('.');
         const payload = JSON.parse(atob(tokenParts[1]));
 
         const userData = {
-          id: payload.userId,
-          username: payload.username,
-          email: payload.email || '', // Add email if available in JWT
-          role: payload.role
+          id: data.user?.id || payload.userId,
+          username: data.user?.username || payload.username,
+          email: data.user?.email || '',
+          role: data.user?.role || payload.role
         };
 
         setTokenData({
-          token: data.token,
+          token: data.accessToken,
           user: userData
         });
 
         // Redirect based on user role
-        if (payload.role === 'Admin') {
+        if (userData.role === 'Admin') {
           router.push('/admin');
         } else {
           router.push('/dashboard');

@@ -1,29 +1,67 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-// to store the user basic data 
+
 model User {
-  id            String           @id @unique @default(cuid())
-  username      String           @unique
-  password      String
-  avatarId      String?
-  role          Role
-  spaces        Space[]
-  avatar        Avatar?          @relation(fields: [avatarId], references: [id])
-  email         String
-  // Space membership relationship
-  spaceMembers  SpaceMember[]    @relation("SpaceMembers")
-  
-  // Chat relationships
-  ownedChatrooms Chatroom[]      @relation("ChatroomOwner")
-  chatroomMembers ChatroomMember[]
-  messages   Message[]
+  id                  String               @id @unique @default(cuid())
+  username            String               @unique
+  password            String
+  avatarId            String?
+  role                Role
+  email               String               @unique
+  failedLoginAttempts Int                  @default(0)
+  lockUntil           DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  ownedChatrooms      Chatroom[]           @relation("ChatroomOwner")
+  chatroomMembers     ChatroomMember[]
+  messages            Message[]
+  passwordResetTokens PasswordResetToken[]
+  refreshTokens       RefreshToken[]
+  spaces              Space[]
+  spaceMembers        SpaceMember[]        @relation("SpaceMembers")
+  avatar              Avatar?              @relation(fields: [avatarId], references: [id])
 }
-// it the model to save the users created space via the map created by the admin
+
+model RefreshToken {
+  id         String    @id @unique @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id         String    @id @unique @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  consumedAt DateTime?
+  ip         String?
+  userAgent  String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 model Space {
   id        String          @id @unique @default(cuid())
   name      String
@@ -31,31 +69,24 @@ model Space {
   height    Int?
   thumbnail String?
   creatorId String
+  chatrooms Chatroom[]
   creator   User            @relation(fields: [creatorId], references: [id])
   elements  SpaceElements[]
-  
-  // Chat relationship
-  chatrooms Chatroom[]
-  
-  // Space membership relationship
   members   SpaceMember[]
 }
-// used to save the joined member of the space 
+
 model SpaceMember {
-  id        String   @id @unique @default(cuid())
-  userId    String
-  spaceId   String
-  joinedAt  DateTime @default(now())
-  isActive  Boolean  @default(true)
-  
-  user      User     @relation("SpaceMembers", fields: [userId], references: [id])
-  space     Space    @relation(fields: [spaceId], references: [id])
-  
+  id       String   @id @unique @default(cuid())
+  userId   String
+  spaceId  String
+  joinedAt DateTime @default(now())
+  isActive Boolean  @default(true)
+  space    Space    @relation(fields: [spaceId], references: [id])
+  user     User     @relation("SpaceMembers", fields: [userId], references: [id])
+
   @@unique([userId, spaceId])
 }
-// to check if the user is granneted to join the chatroom
-//delte , removed from the concept 
-// the model to save the which elements are in the space 
+
 model SpaceElements {
   id        String  @id @unique @default(cuid())
   elementId String
@@ -65,7 +96,7 @@ model SpaceElements {
   element   Element @relation(fields: [elementId], references: [id])
   space     Space   @relation(fields: [spaceId], references: [id])
 }
-// admin will create the space 
+
 model Element {
   id          String          @id @unique @default(cuid())
   width       Int
@@ -75,17 +106,17 @@ model Element {
   mapelements MapElements[]
   spaces      SpaceElements[]
 }
-// admin will create the map using elements
+
 model Map {
   id          String        @id @unique @default(cuid())
   width       Int
-  createrId   String 
+  createrId   String
   height      Int
   name        String
   thumbnail   String
   mapElements MapElements[]
 }
-// kon kon sa elemets hai is inbuilt map me 
+
 model MapElements {
   id        String  @id @unique @default(cuid())
   mapId     String
@@ -102,66 +133,61 @@ model Avatar {
   name     String?
   users    User[]
 }
+
 model Chatroom {
-  id          String            @id @unique @default(cuid())
+  id          String           @id @unique @default(cuid())
   name        String
   description String?
   passcode    String
   spaceId     String
   creatorId   String
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  
-  // Relationships
-  space       Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  creator     User              @relation("ChatroomOwner", fields: [creatorId], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  creator     User             @relation("ChatroomOwner", fields: [creatorId], references: [id])
+  space       Space            @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   members     ChatroomMember[]
   messages    Message[]
+
   @@index([spaceId])
   @@index([creatorId])
 }
 
-// Junction table for many-to-many relationship
 model ChatroomMember {
-  id         String    @id @unique @default(cuid())
+  id         String   @id @unique @default(cuid())
   userId     String
   chatroomId String
-  isActive   Boolean   @default(true)
-  
-  // Relationships
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chatroom   Chatroom  @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
-  
-  // Ensure one user can only be a member once per chatroom
+  isActive   Boolean  @default(true)
+  chatroom   Chatroom @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, chatroomId])
   @@index([userId])
   @@index([chatroomId])
 }
+
 model Message {
-  id         String   @id @unique @default(cuid())
-  content    String
-  userId     String
-  chatroomId String
-  type       String   @default("text") // text, image, file, system
-  status     String   @default("sent") // sent, delivered, read
-  metadata   Json?    // Additional message metadata
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  sentAt     DateTime @default(now())
+  id          String    @id @unique @default(cuid())
+  content     String
+  userId      String
+  chatroomId  String
+  type        String    @default("text")
+  status      String    @default("sent")
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  sentAt      DateTime  @default(now())
   deliveredAt DateTime?
-  readAt     DateTime?
-  
-  // Relationships
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chatroom   Chatroom @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
-  
+  readAt      DateTime?
+  chatroom    Chatroom  @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([chatroomId])
   @@index([userId])
   @@index([createdAt])
   @@index([status])
 }
+
 enum Role {
   Admin
   User
 }
-

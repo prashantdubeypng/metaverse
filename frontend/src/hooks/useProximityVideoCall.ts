@@ -94,22 +94,34 @@ export function useProximityVideoCall() {
    * Initialize proximity video call manager
    */
   const initialize = useCallback(async (userId: string) => {
-    if (isInitializedRef.current) return; // Guard against duplicate init calls
+    console.log('🔌 [HOOK INIT] initialize called:', {
+      userId,
+      isInitializedRef: isInitializedRef.current,
+      stateIsInitialized: state.isInitialized
+    });
+    
+    if (isInitializedRef.current) {
+      console.log('🔌 [HOOK INIT] Skipping - already initialized (ref guard)');
+      return; // Guard against duplicate init calls
+    }
     
     try {
       isInitializedRef.current = true;
+      console.log('🔌 [HOOK INIT] Setting websocket service and calling manager initialize...');
       // Inject WebSocket service (idempotent; internally resets listeners each time)
       proximityVideoCallManager.setWebSocketService(websocketService);
       await proximityVideoCallManager.initialize(userId);
+      console.log('🔌 [HOOK INIT] Manager initialized successfully');
       setState(prev => ({ ...prev, isInitialized: true, error: null }));
     } catch (error) {
+      console.error('🔌 [HOOK INIT] Failed to initialize:', error);
       isInitializedRef.current = false;
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Failed to initialize video call',
       }));
     }
-  }, []);
+  }, [state.isInitialized]);
 
   /**
    * Update user position

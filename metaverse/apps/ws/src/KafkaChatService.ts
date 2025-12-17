@@ -49,7 +49,7 @@ export class KafkaChatService {
             console.log(' Aiven Cloud detected, enabling SSL without custom certificates');
             kafkaConfig.ssl = { rejectUnauthorized: true };
         } else {
-            console.log('ℹ️ No SSL certificates found, using plain Kafka connection');
+            console.log('No SSL certificates found, using plain Kafka connection');
         }
 
         if (kafkaConfig.ssl && process.env.KAFKA_SSL_CERT && process.env.KAFKA_SSL_KEY) {
@@ -115,11 +115,11 @@ export class KafkaChatService {
         try {
             if (this.consumer) {
                 await this.consumer.disconnect();
-                console.log('🔌 Kafka Consumer disconnected');
+                console.log(' Kafka Consumer disconnected');
             }
             if (this.producer) {
                 await this.producer.disconnect();
-                console.log('🔌 Kafka Producer disconnected');
+                console.log(' Kafka Producer disconnected');
             }
         } catch (error) {
             console.error(' Error disconnecting from Kafka:', error);
