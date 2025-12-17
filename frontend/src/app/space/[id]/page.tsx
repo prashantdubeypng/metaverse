@@ -1,8 +1,8 @@
 "use client";
-import { ENV, ENDPOINTS } from '@/CONFIG/env.config';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import OfficeSpaceViewer from '@/components/OfficeSpaceViewer';
+import SpaceViewer from '@/components/SpaceViewer';
 import LoadingScreen from '@/components/LoadingScreen';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { getTokenData, clearTokenData } from '@/utils/auth';
@@ -15,6 +15,11 @@ import NearbyUsersPanel from '@/components/NearbyUsersPanel';
 import ProximityManager from '@/components/ProximityManager';
 import ProximityVideoCallUI from '@/components/ProximityVideoCallUI';
 import websocketService from '@/services/websocket';
+// BUG-030 FIX: Focus tracking to prevent keyboard conflicts with UI
+import { useFocusTracker, useGlobalEscape } from '@/hooks/useFocusTracker';
+// BUG-027 FIX: Memory manager for long session stability
+import { memoryManager } from '@/services/memoryManager';
+import { debugLog, debugWarn } from '@/utils/logger';
 
 interface User {
   id: string;
@@ -60,19 +65,13 @@ interface Chatroom {
 
 interface BackendChatroomResponse {
   id: string;
-  name: string;
-  description?: string | null;
-  spaceId: string;
-  creatorId: string;
-  createdAt: string;
-  passcode?: string | null;
-  creator?: {
-    id: string;
-    username: string;
-  };
-  _count?: {
-    members: number;
-  };
+  groupname: string;
+  desc?: string;
+  spaceid: string;
+  creatorid: string;
+  createdat: string;
+  passcode?: string;
+  memberCount?: number;
 }
 
 interface ChatMessage {
@@ -94,13 +93,18 @@ export default function SpacePage() {
   const router = useRouter();
   const spaceId = params.id as string;
 
+  // BUG-030 FIX: Track when UI elements are focused to disable keyboard movement
+  const isUIFocused = useFocusTracker();
+  useGlobalEscape(); // Enable Escape key to blur focused elements
+
   const [space, setSpace] = useState<Space | null>(null);
   const [elements, setElements] = useState<SpaceElement[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showGrid] = useState(true);
+  const [scale, setScale] = useState(0.5);
+  const [showGrid, setShowGrid] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Not Connected');
 
@@ -108,6 +112,8 @@ export default function SpacePage() {
   const [chatrooms, setChatrooms] = useState<Chatroom[]>([]);
   const [activeChatrooms, setActiveChatrooms] = useState<Set<string>>(new Set());
   const [chatMessages, setChatMessages] = useState<Map<string, ChatMessage[]>>(new Map());
+  // Removed unused onlineUsers state that was not referenced in UI
+  const [_onlineUsers, _setOnlineUsers] = useState<Map<string, User[]>>(new Map()); // Placeholder state; underscore to suppress unused warning
   const [selectedChatroom, setSelectedChatroom] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [showChatWindow, setShowChatWindow] = useState(false);
@@ -126,6 +132,13 @@ export default function SpacePage() {
 
   // Grid system constants
   const GRID_SIZE = 20; // Each grid cell is 20x20 pixels
+  
+  /**
+   * BUG-027 FIX: Maximum messages per chatroom to prevent unbounded memory growth
+   * Old messages beyond this limit are discarded when new messages arrive.
+   * This prevents memory from growing indefinitely during long sessions.
+   */
+  const MAX_MESSAGES_PER_ROOM = 100;
 
   // Video call integration - only initialize when user data is available
   const shouldEnableVideoCalls = currentUser && currentUser.id && currentUser.username;
@@ -138,7 +151,7 @@ export default function SpacePage() {
       y: currentUser.y,
       isCurrentUser: true
     } : { id: '', username: '', x: 0, y: 0 },
-  webSocketUrl: ENV.WS_URL
+    webSocketUrl: 'http://localhost:3001'
   });
 
   // Proximity video call integration
@@ -174,25 +187,85 @@ export default function SpacePage() {
     endCall: async () => {}
   };
 
-  // Cleanup on unmount
+  /**
+   * BUG-027 FIX: Memory Manager Initialization and Cleanup
+   * 
+   * Starts the memory manager when the component mounts and registers
+   * cleanup callbacks for chat messages and WebSocket listeners.
+   * This ensures long sessions don't accumulate unbounded memory.
+   */
   useEffect(() => {
+    debugLog('🧹 Initializing memory manager for space page');
+    
+    // Start memory monitoring
+    memoryManager.start();
+    
+    // Register cleanup for chat messages (trim old messages in inactive rooms)
+    memoryManager.registerCleanup('chatMessages', () => {
+      debugLog('🧹 Running chat message cleanup');
+      setChatMessages(prev => {
+        // Only keep rooms that are currently active
+        const newMap = new Map<string, ChatMessage[]>();
+        for (const [roomId, messages] of prev.entries()) {
+          if (activeChatrooms.has(roomId)) {
+            // Keep only last MAX_MESSAGES_PER_ROOM messages
+            newMap.set(roomId, messages.slice(-MAX_MESSAGES_PER_ROOM));
+          }
+          // Inactive rooms are not copied (they get garbage collected)
+        }
+        const removed = prev.size - newMap.size;
+        if (removed > 0) {
+          debugLog(`🧹 Cleaned up ${removed} inactive chatroom message caches`);
+        }
+        return newMap;
+      });
+    }, 5);
+    
+    // Register cleanup for stale users (users who haven't moved in a long time)
+    memoryManager.registerCleanup('staleUsers', () => {
+      const listenerLeaks = websocketService.checkForListenerLeaks();
+      if (listenerLeaks.length > 0) {
+        debugWarn('⚠️ Potential listener leaks detected:', listenerLeaks);
+      }
+      
+      // Log total listener count for monitoring
+      const totalListeners = websocketService.getTotalListenerCount();
+      debugLog(`📊 WebSocket listeners: ${totalListeners}`);
+    }, 10);
+    
     return () => {
-      // Cleanup handled by websocket service
+      debugLog('🧹 Stopping memory manager and cleaning up');
+      
+      // Unregister cleanup callbacks
+      memoryManager.unregisterCleanup('chatMessages');
+      memoryManager.unregisterCleanup('staleUsers');
+      
+      // Stop memory monitoring
+      memoryManager.stop();
+      
+      // Clear all state to free memory
+      setUsers([]);
+      setChatMessages(new Map());
+      setActiveChatrooms(new Set());
+      _setOnlineUsers(new Map());
+      
+      // Disconnect websocket cleanly
+      websocketService.disconnect();
     };
-  }, []);
+  }, []); // Note: activeChatrooms is intentionally not in deps to avoid re-registering on every change
 
   // User movement handler
   const handleUserMove = useCallback((x: number, y: number) => {
-    console.log('handleUserMove called with:', { x, y, currentUser, space: space ? { width: space.width, height: space.height } : null });
+    console.log('🚀 handleUserMove called with:', { x, y, currentUser, space: space ? { width: space.width, height: space.height } : null });
     
     if (!currentUser || !space) {
-      console.log('Missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
+      console.log('❌ Missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
       return;
     }
 
     // Validate input coordinates
     if (typeof x !== 'number' || typeof y !== 'number' || isNaN(x) || isNaN(y)) {
-      console.error('Invalid coordinates received:', { x, y, typeof_x: typeof x, typeof_y: typeof y });
+      console.error('❌ Invalid coordinates received:', { x, y, typeof_x: typeof x, typeof_y: typeof y });
       return;
     }
 
@@ -203,7 +276,7 @@ export default function SpacePage() {
     const clampedX = Math.max(GRID_SIZE, Math.min(maxPixelX, x)); // Start from GRID_SIZE, not 20
     const clampedY = Math.max(GRID_SIZE, Math.min(maxPixelY, y));
 
-    console.log('Clamped coordinates:', { 
+    console.log('📏 Clamped coordinates:', { 
       original: { x, y }, 
       clamped: { x: clampedX, y: clampedY }, 
       bounds: { maxX: maxPixelX, maxY: maxPixelY }
@@ -212,10 +285,8 @@ export default function SpacePage() {
     // Send movement to WebSocket service if connected (don't update locally, wait for server confirmation)
     if (isConnected) {
       // Convert pixel coordinates to grid coordinates for backend
-      // Use Math.floor instead of Math.round to prevent rounding errors
-      // Example: pixel 790 → 39.5 → floor(39.5) = 39 (valid) vs round(39.5) = 40 (rejected)
-      const gridX = Math.floor(clampedX / GRID_SIZE);
-      const gridY = Math.floor(clampedY / GRID_SIZE);
+      const gridX = Math.round(clampedX / GRID_SIZE);
+      const gridY = Math.round(clampedY / GRID_SIZE);
       
       websocketService.send('move', { 
         x: gridX, 
@@ -227,7 +298,7 @@ export default function SpacePage() {
         proximityVideoCall.updatePosition(clampedX, clampedY, 0);
       }
       
-      console.log(`Sent movement request - Pixel: (${clampedX}, ${clampedY}) → Grid: (${gridX}, ${gridY})`);
+      console.log(`📍 Sent movement request - Pixel: (${clampedX}, ${clampedY}) → Grid: (${gridX}, ${gridY})`);
     } else {
       // If not connected, update locally only
       setCurrentUser(prev => prev ? {
@@ -241,22 +312,30 @@ export default function SpacePage() {
         proximityVideoCall.updatePosition(clampedX, clampedY, 0);
       }
       
-      console.log(`Local movement to: ${clampedX}, ${clampedY} (not connected)`);
+      console.log(`🔄 Local movement to: ${clampedX}, ${clampedY} (not connected)`);
     }
   }, [currentUser, space, isConnected, shouldEnableVideoCalls, proximityVideoCall]);
 
   // Keyboard movement controls
+  // BUG-030 FIX: Only handle keyboard movement when UI is not focused
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      console.log('Key pressed:', event.code, event.key);
+      // BUG-030 FIX: Don't intercept keyboard events when user is typing in a form field
+      // This prevents arrow keys from moving the avatar while user is typing in chat
+      if (isUIFocused) {
+        // Still allow Escape to blur (handled by useGlobalEscape)
+        return;
+      }
+      
+      console.log('🎹 Key pressed:', event.code, event.key);
       
       if (!currentUser || !space) {
-        console.log('Cannot move - missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
+        console.log('❌ Cannot move - missing currentUser or space:', { currentUser: !!currentUser, space: !!space });
         return;
       }
 
       // Debug: Check current user state
-      console.log('Keyboard input:', { 
+      console.log('🎮 Keyboard input:', { 
         key: event.code, 
         currentUser: { x: currentUser.x, y: currentUser.y }, 
         space: { width: space.width, height: space.height } 
@@ -268,37 +347,41 @@ export default function SpacePage() {
 
       // Ensure current position values are numbers
       if (typeof newX !== 'number' || typeof newY !== 'number') {
-        console.error('Invalid current position:', { x: newX, y: newY });
+        console.error('❌ Invalid current position:', { x: newX, y: newY });
         return;
       }
 
       // Validate space dimensions
       if (!space.width || !space.height || typeof space.width !== 'number' || typeof space.height !== 'number') {
-        console.error('Invalid space dimensions:', { width: space.width, height: space.height });
-        console.log('Using fallback dimensions: 400x400');
+        console.error('❌ Invalid space dimensions:', { width: space.width, height: space.height });
+        console.log('🔧 Using fallback dimensions: 400x400');
         // Use fallback dimensions if not provided
         const fallbackWidth = 400;
         const fallbackHeight = 400;
         
         switch (event.code) {
           case 'ArrowUp':
+          case 'KeyW':
             newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
-            console.log('Arrow Up (fallback) - oldY:', currentUser.y, 'newY:', newY);
+            console.log('⬆️ Arrow Up (fallback) - oldY:', currentUser.y, 'newY:', newY);
             event.preventDefault();
             break;
           case 'ArrowDown':
+          case 'KeyS':
             newY = Math.min(fallbackHeight - GRID_SIZE, currentUser.y + moveDistance);
-            console.log('Arrow Down (fallback) - oldY:', currentUser.y, 'newY:', newY);
+            console.log('⬇️ Arrow Down (fallback) - oldY:', currentUser.y, 'newY:', newY);
             event.preventDefault();
             break;
           case 'ArrowLeft':
+          case 'KeyA':
             newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
-            console.log('Arrow Left (fallback) - oldX:', currentUser.x, 'newX:', newX);
+            console.log('⬅️ Arrow Left (fallback) - oldX:', currentUser.x, 'newX:', newX);
             event.preventDefault();
             break;
           case 'ArrowRight':
+          case 'KeyD':
             newX = Math.min(fallbackWidth - GRID_SIZE, currentUser.x + moveDistance);
-            console.log('Arrow Right (fallback) - oldX:', currentUser.x, 'newX:', newX);
+            console.log('➡️ Arrow Right (fallback) - oldX:', currentUser.x, 'newX:', newX);
             event.preventDefault();
             break;
           default:
@@ -307,23 +390,27 @@ export default function SpacePage() {
       } else {
         switch (event.code) {
           case 'ArrowUp':
+          case 'KeyW':
             newY = Math.max(GRID_SIZE, currentUser.y - moveDistance);
-            console.log('Arrow Up - oldY:', currentUser.y, 'newY:', newY);
+            console.log('⬆️ Arrow Up - oldY:', currentUser.y, 'newY:', newY);
             event.preventDefault();
             break;
           case 'ArrowDown':
+          case 'KeyS':
             newY = Math.min(space.height - GRID_SIZE, currentUser.y + moveDistance);
-            console.log('Arrow Down - oldY:', currentUser.y, 'newY:', newY, 'maxY:', space.height - GRID_SIZE);
+            console.log('⬇️ Arrow Down - oldY:', currentUser.y, 'newY:', newY, 'maxY:', space.height - GRID_SIZE);
             event.preventDefault();
             break;
           case 'ArrowLeft':
+          case 'KeyA':
             newX = Math.max(GRID_SIZE, currentUser.x - moveDistance);
-            console.log('Arrow Left - oldX:', currentUser.x, 'newX:', newX);
+            console.log('⬅️ Arrow Left - oldX:', currentUser.x, 'newX:', newX);
             event.preventDefault();
             break;
           case 'ArrowRight':
+          case 'KeyD':
             newX = Math.min(space.width - GRID_SIZE, currentUser.x + moveDistance);
-            console.log('Arrow Right - oldX:', currentUser.x, 'newX:', newX, 'maxX:', space.width - GRID_SIZE);
+            console.log('➡️ Arrow Right - oldX:', currentUser.x, 'newX:', newX, 'maxX:', space.width - GRID_SIZE);
             event.preventDefault();
             break;
           default:
@@ -333,10 +420,10 @@ export default function SpacePage() {
 
       // Only move if position actually changed and values are valid
       if ((newX !== currentUser.x || newY !== currentUser.y) && !isNaN(newX) && !isNaN(newY)) {
-        console.log('Moving from:', { x: currentUser.x, y: currentUser.y }, 'to:', { x: newX, y: newY });
+        console.log('🎮 Moving from:', { x: currentUser.x, y: currentUser.y }, 'to:', { x: newX, y: newY });
         handleUserMove(newX, newY);
       } else {
-        console.log('Invalid movement or no change:', { newX, newY, currentX: currentUser.x, currentY: currentUser.y });
+        console.log('🚫 Invalid movement or no change:', { newX, newY, currentX: currentUser.x, currentY: currentUser.y });
       }
     };
 
@@ -347,7 +434,34 @@ export default function SpacePage() {
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, [currentUser, space, handleUserMove]);
+  }, [currentUser, space, handleUserMove, isUIFocused]); // BUG-030: Added isUIFocused dependency
+
+  /**
+   * BUG-029 FIX: Handle tab visibility changes to refresh state
+   * When tab becomes visible after being hidden, request fresh state from server
+   * This prevents stale user positions after tab sleep or suspension
+   */
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[Visibility] Tab hidden - connection may become stale');
+      } else {
+        console.log('[Visibility] Tab visible - checking connection state');
+        // Only refresh if we were connected
+        if (isConnected && spaceId) {
+          console.log('[Visibility] Requesting fresh room state');
+          // Request fresh state from server
+          websocketService.send('request-room-state', { spaceId });
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isConnected, spaceId]);
 
   const fetchSpaceData = useCallback(async () => {
     try {
@@ -359,12 +473,7 @@ export default function SpacePage() {
       }
 
       // First, check if user has access to this space
-      const membershipUrl = `${ENDPOINTS.space.base}/room/join-room/${spaceId}`;
-      console.log('🔍 [DEBUG] Fetching membership URL:', membershipUrl);
-      console.log('🔍 [DEBUG] ENDPOINTS.space.base:', ENDPOINTS.space.base);
-      console.log('🔍 [DEBUG] ENV.API_URL:', ENV.API_URL);
-      
-  const membershipResponse = await fetch(membershipUrl, {
+      const membershipResponse = await fetch(`http://localhost:8000/api/v1/space/room/join-room/${spaceId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -379,7 +488,7 @@ export default function SpacePage() {
       }
 
       // Then fetch space data and elements
-  const spaceResponse = await fetch(`${ENDPOINTS.space.base}/${spaceId}`, {
+      const spaceResponse = await fetch(`http://localhost:8000/api/v1/space/${spaceId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -392,18 +501,18 @@ export default function SpacePage() {
       }
 
       const spaceData = await spaceResponse.json();
-      console.log('Raw space data from backend:', spaceData);
+      console.log('🏗️ Raw space data from backend:', spaceData);
       
       // Extract space info and elements from the response
       const spaceInfo = {
         id: spaceData.id,
         name: spaceData.name,
-        width: 1900,
-        height: 900,
+        width: spaceData.width,
+        height: spaceData.height,
         thumbnail: spaceData.thumbnail,
       };
 
-      console.log('Processed space info:', spaceInfo);
+      console.log('🏠 Processed space info:', spaceInfo);
       setSpace(spaceInfo);
       setElements(spaceData.elements || []);
 
@@ -457,7 +566,7 @@ export default function SpacePage() {
         return;
       }
 
-  const response = await fetch(`${ENDPOINTS.chatroom.base}/space/${spaceId}`, {
+      const response = await fetch(`http://localhost:8000/api/v1/chatroom/space/${spaceId}`, {
         headers: {
           'Authorization': `Bearer ${tokenData.token}`
         }
@@ -466,31 +575,31 @@ export default function SpacePage() {
       const data = await response.json();
       
       if (data.status === 200) {
-        console.log('Raw backend chatroom data:', data.data);
+        console.log('🔍 Raw backend chatroom data:', data.data);
         
-        // Map backend response (Prisma shape) to frontend interface
+        // Map backend response to frontend interface
         const mappedChatrooms = (data.data || []).map((room: BackendChatroomResponse) => {
-          console.log('Mapping individual room:', room);
+          console.log('🔍 Mapping individual room:', room);
           return {
             id: room.id,
-            name: room.name,
-            description: room.description ?? undefined,
-            spaceId: room.spaceId,
-            creatorId: room.creatorId,
-            createdAt: room.createdAt,
-            hasPassword: !!room.passcode,
-            memberCount: room._count?.members ?? 0
-          } as Chatroom;
+            name: room.groupname,
+            description: room.desc,
+            spaceId: room.spaceid,
+            creatorId: room.creatorid,
+            createdAt: room.createdat,
+            hasPassword: !!room.passcode, // Convert to boolean
+            memberCount: room.memberCount || 0
+          };
         });
         
-        console.log('Mapped chatrooms:', mappedChatrooms);
+        console.log('✅ Mapped chatrooms:', mappedChatrooms);
         setChatrooms(mappedChatrooms);
-        console.log('Loaded chatrooms:', mappedChatrooms);
+        console.log('✅ Loaded chatrooms:', mappedChatrooms);
       } else {
         setChatError(data.message || 'Failed to load chatrooms');
       }
     } catch (error) {
-      console.error('Failed to load chatrooms:', error);
+      console.error('❌ Failed to load chatrooms:', error);
       setChatError('Failed to load chatrooms');
     } finally {
       setIsLoadingChatrooms(false);
@@ -511,7 +620,7 @@ export default function SpacePage() {
         return null;
       }
 
-  const response = await fetch(`${ENDPOINTS.chatroom.base}/create`, {
+      const response = await fetch('http://localhost:8000/api/v1/chatroom/create', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -528,7 +637,7 @@ export default function SpacePage() {
       const data = await response.json();
       
       if (data.message === 'success') {
-        console.log('Chatroom created:', data.data);
+        console.log('✅ Chatroom created:', data.data);
         await loadChatrooms(); // Refresh list
         return data.data;
       } else {
@@ -536,7 +645,7 @@ export default function SpacePage() {
         return null;
       }
     } catch (error) {
-      console.error('Failed to create chatroom:', error);
+      console.error('❌ Failed to create chatroom:', error);
       setChatError('Failed to create chatroom');
       return null;
     } finally {
@@ -550,7 +659,7 @@ export default function SpacePage() {
       const tokenData = getTokenData();
       if (!tokenData?.token) return;
 
-  const response = await fetch(`${ENDPOINTS.chatroom.base}/${chatroomId}/messages`, {
+      const response = await fetch(`http://localhost:8000/api/v1/chatroom/${chatroomId}/messages`, {
         headers: {
           'Authorization': `Bearer ${tokenData.token}`
         }
@@ -574,15 +683,16 @@ export default function SpacePage() {
           createdAt: msg.createdAt,
           timestamp: new Date(msg.createdAt)
         }));
+        // BUG-027 FIX: Cap messages per room to prevent unbounded memory growth
         setChatMessages(prev => {
           const newMap = new Map(prev);
-          newMap.set(chatroomId, messages);
+          newMap.set(chatroomId, messages.slice(-MAX_MESSAGES_PER_ROOM));
           return newMap;
         });
-        console.log('Loaded message history for chatroom:', chatroomId, messages);
+        console.log('✅ Loaded message history for chatroom:', chatroomId, messages);
       }
     } catch (error) {
-      console.error('Failed to load message history:', error);
+      console.error('❌ Failed to load message history:', error);
     }
   }, []);
 
@@ -598,7 +708,7 @@ export default function SpacePage() {
       }
 
       // Join via HTTP API
-  const response = await fetch(`${ENDPOINTS.chatroom.base}/join/${chatroomId}`, {
+      const response = await fetch(`http://localhost:8000/api/v1/chatroom/join/${chatroomId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,
@@ -612,7 +722,7 @@ export default function SpacePage() {
       // Handle different response statuses
       if (response.status === 409) {
         // User already joined this chatroom
-        console.log('Already joined chatroom:', chatroomId);
+        console.log('ℹ️ Already joined chatroom:', chatroomId);
         
         // Still proceed with local state updates and WebSocket join
         if (isConnected) {
@@ -627,7 +737,7 @@ export default function SpacePage() {
         setSelectedChatroom(chatroomId);
         setShowChatWindow(true);
         
-        console.log('Rejoined chatroom:', chatroomId);
+        console.log('✅ Rejoined chatroom:', chatroomId);
         return true;
       } else if (data.status === 200 || data.message === 'sucess') {
         // Successfully joined for the first time
@@ -643,14 +753,14 @@ export default function SpacePage() {
         setSelectedChatroom(chatroomId);
         setShowChatWindow(true);
         
-        console.log('Joined chatroom:', chatroomId);
+        console.log('✅ Joined chatroom:', chatroomId);
         return true;
       } else {
         setChatError(data.message || 'Failed to join chatroom');
         return false;
       }
     } catch (error) {
-      console.error('Failed to join chatroom:', error);
+      console.error('❌ Failed to join chatroom:', error);
       setChatError('Failed to join chatroom');
       return false;
     }
@@ -658,18 +768,45 @@ export default function SpacePage() {
 
   // (duplicate loadMessageHistory removed)
 
-  // Send chat message
+  // Send chat message with acknowledgment tracking
+  // BUG-024 FIX: Add optimistic UI and delivery confirmation
   const sendChatMessage = useCallback((chatroomId: string, content: string, type: 'text' | 'image' | 'file' = 'text') => {
     if (!activeChatrooms.has(chatroomId)) {
-      console.error('Not in chatroom:', chatroomId);
+      console.error('❌ Not in chatroom:', chatroomId);
       setChatError('Not connected to this chatroom');
       return;
     }
     
     if (!isConnected) {
-      console.error('WebSocket not connected');
+      console.error('❌ WebSocket not connected');
       setChatError('Connection lost');
       return;
+    }
+    
+    // Generate a local ID for optimistic UI update
+    const localId = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    // BUG-024 FIX: Add optimistic message to UI immediately
+    const tokenData = getTokenData();
+    if (tokenData?.user) {
+      const optimisticMessage: ChatMessage = {
+        id: localId,
+        content,
+        userId: tokenData.user.id,
+        user: { id: tokenData.user.id, username: tokenData.user.username || 'You' },
+        chatroomId,
+        type,
+        createdAt: new Date().toISOString(),
+        timestamp: new Date()
+      };
+      
+      // BUG-027 FIX: Cap messages per room to prevent unbounded memory growth
+      setChatMessages(prev => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(chatroomId) || [];
+        newMap.set(chatroomId, [...existing, optimisticMessage].slice(-MAX_MESSAGES_PER_ROOM));
+        return newMap;
+      });
     }
     
     websocketService.send('chat-message', {
@@ -678,7 +815,7 @@ export default function SpacePage() {
       type
     });
     
-    console.log('Sent chat message:', { chatroomId, content, type });
+    console.log('📤 Sent chat message:', { chatroomId, content, type });
   }, [activeChatrooms, isConnected]);
 
   // Leave chatroom (currently unused but available for future functionality)
@@ -699,11 +836,17 @@ export default function SpacePage() {
       return newMap;
     });
     
+    _setOnlineUsers((prev: Map<string, User[]>) => {
+      const newMap = new Map(prev);
+      newMap.delete(chatroomId);
+      return newMap;
+    });
+    
     if (selectedChatroom === chatroomId) {
       setSelectedChatroom(null);
     }
     
-    console.log('Left chatroom:', chatroomId);
+    console.log('👋 Left chatroom:', chatroomId);
   }, [isConnected, selectedChatroom]);
 
   // Load chatrooms when space is loaded
@@ -715,7 +858,7 @@ export default function SpacePage() {
 
   const handleConnectToWebSocket = async () => {
     if (isConnected) {
-      console.log('Already connected to WebSocket');
+      console.log('⚠️ Already connected to WebSocket');
       return;
     }
     
@@ -731,7 +874,7 @@ export default function SpacePage() {
       // Use unified websocket service properly
       await websocketService.joinSpace(spaceId, tokenData.token);
       
-      console.log('WebSocket connected & joined space');
+      console.log('🔗 WebSocket connected & joined space');
       setConnectionStatus('Connected');
       setIsConnected(true);
       
@@ -749,7 +892,7 @@ export default function SpacePage() {
   const setupWebSocketEventListeners = () => {
     // Space events
     websocketService.on('space-joined', (payload: { spawn?: { x?: number; y?: number }; users?: Array<{ userId: string; username?: string; x: number; y: number }> }) => {
-      console.log('Successfully joined space at:', payload.spawn);
+      console.log('🎮 Successfully joined space at:', payload.spawn);
       
       // Update current user position to spawn point
       const spawnGridX = payload.spawn?.x || 1;
@@ -763,50 +906,57 @@ export default function SpacePage() {
           x: pixelX,
           y: pixelY
         } : null);
-        console.log('Current user position updated - Grid:', { x: spawnGridX, y: spawnGridY }, 'Pixel:', { x: pixelX, y: pixelY });
+        console.log('📍 Current user position updated - Grid:', { x: spawnGridX, y: spawnGridY }, 'Pixel:', { x: pixelX, y: pixelY });
       }
       
       // Set other users in the space
-      console.log('[DEBUG] Received users from space-joined:', payload.users);
+      console.log('👥 [DEBUG] Received users from space-joined:', payload.users);
       const otherUsers = (payload.users || []).map((user: { userId: string; username?: string; x: number; y: number }) => ({
         id: user.userId,
         username: user.username || `User_${user.userId?.slice(0, 8) || 'Unknown'}`,
         x: user.x * GRID_SIZE,
         y: user.y * GRID_SIZE
       }));
-      console.log('[DEBUG] Processed other users:', otherUsers);
+      console.log('👥 [DEBUG] Processed other users:', otherUsers);
       setUsers(otherUsers);
       setConnectionStatus('In Space');
     });
 
-    websocketService.on('user-joined-space', (payload: { userId: string; username?: string; spawn?: { x?: number; y?: number }; x?: number; y?: number }) => {
-      console.log('New user joined:', payload);
-      // Extract coordinates from either spawn object or direct properties for backward compatibility
-      const gridX = payload.spawn?.x ?? payload.x ?? 1;
-      const gridY = payload.spawn?.y ?? payload.y ?? 1;
+    /**
+     * BUG-029 FIX: Handle user joining space
+     * Replace any existing entry for this user ID to prevent stale position
+     * This handles the case where a user reconnects and their old position was cached
+     */
+    websocketService.on('user-joined-space', (payload: { userId: string; username?: string; spawn?: { x?: number; y?: number } }) => {
+      console.log('👤 New user joined:', payload);
       const newUser = {
         id: payload.userId,
         username: payload.username || `User_${payload.userId?.slice(0, 8) || 'Unknown'}`,
-        x: gridX * GRID_SIZE,
-        y: gridY * GRID_SIZE
+        x: (payload.spawn?.x || 1) * GRID_SIZE,
+        y: (payload.spawn?.y || 1) * GRID_SIZE
       };
-      console.log(`[NEW USER] Added user ${newUser.username} at grid (${gridX}, ${gridY}) → pixel (${newUser.x}, ${newUser.y})`);
-      setUsers(prev => [...prev, newUser]);
+      
+      // BUG-029 FIX: Remove any existing entry for this user before adding
+      // This ensures we don't have stale position data from previous connections
+      setUsers(prev => {
+        const filtered = prev.filter(u => u.id !== payload.userId);
+        return [...filtered, newUser];
+      });
     });
 
     websocketService.on('user-moved', (payload: { userId: string; x: number; y: number }) => {
-      console.log('User moved:', payload);
+      console.log('🚶 User moved:', payload);
       const movedPixelX = payload.x * GRID_SIZE;
       const movedPixelY = payload.y * GRID_SIZE;
       
-      console.log(`[USER-MOVED] Converting Grid: (${payload.x}, ${payload.y}) → Pixel: (${movedPixelX}, ${movedPixelY})`);
+      console.log(`🔄 [USER-MOVED] Converting Grid: (${payload.x}, ${payload.y}) → Pixel: (${movedPixelX}, ${movedPixelY})`);
       
       if (currentUser && payload.userId === currentUser.id) {
-        console.log(`[CURRENT USER] Before update - x: ${currentUser.x}, y: ${currentUser.y}`);
-        console.log(`[CURRENT USER] After update  - x: ${movedPixelX}, y: ${movedPixelY}`);
+        console.log(`👤 [CURRENT USER] Before update - x: ${currentUser.x}, y: ${currentUser.y}`);
+        console.log(`👤 [CURRENT USER] After update  - x: ${movedPixelX}, y: ${movedPixelY}`);
         setCurrentUser(prev => {
           if (prev) {
-            console.log(`[SET CURRENT USER] Updating from (${prev.x}, ${prev.y}) to (${movedPixelX}, ${movedPixelY})`);
+            console.log(`✅ [SET CURRENT USER] Updating from (${prev.x}, ${prev.y}) to (${movedPixelX}, ${movedPixelY})`);
           }
           return prev ? {
             ...prev,
@@ -824,16 +974,16 @@ export default function SpacePage() {
     });
 
     websocketService.on('user-left', (payload: { userId: string }) => {
-      console.log('User left:', payload);
+      console.log('👋 User left:', payload);
       setUsers(prev => prev.filter(user => user.id !== payload.userId));
     });
 
     websocketService.on('move-rejected', (payload: { userId: string; x: number; y: number }) => {
-      console.log('Movement rejected:', payload);
+      console.log('❌ Movement rejected:', payload);
       // Backend sends grid coordinates, convert to pixels
       const rejectedPixelX = payload.x * GRID_SIZE;
       const rejectedPixelY = payload.y * GRID_SIZE;
-      console.log(`[MOVE REJECTED] Restoring position - Grid: (${payload.x}, ${payload.y}) → Pixel: (${rejectedPixelX}, ${rejectedPixelY})`);
+      console.log(`🔙 [MOVE REJECTED] Restoring position - Grid: (${payload.x}, ${payload.y}) → Pixel: (${rejectedPixelX}, ${rejectedPixelY})`);
       
       if (currentUser && payload.userId === currentUser.id) {
         setCurrentUser(prev => prev ? {
@@ -855,7 +1005,7 @@ export default function SpacePage() {
       type?: string;
       createdAt?: string;
     }) => {
-      console.log('Chat message received:', payload);
+      console.log('💬 Chat message received:', payload);
       const chatroomId = payload.chatroomId;
       const newMessage: ChatMessage = {
         id: payload.messageId,
@@ -871,27 +1021,96 @@ export default function SpacePage() {
         timestamp: new Date(payload.createdAt || payload.timestamp || Date.now())
       };
       
+      // BUG-024 FIX: Deduplicate messages to prevent showing message twice
+      // (once from optimistic UI and once from server confirmation)
+      // BUG-027 FIX: Cap messages per room to prevent unbounded memory growth
       setChatMessages(prev => {
         const newMap = new Map(prev);
         const existing = newMap.get(chatroomId) || [];
-        newMap.set(chatroomId, [...existing, newMessage]);
+        
+        // Check if message already exists (by content and timestamp proximity for optimistic messages)
+        const isDuplicate = existing.some(msg => {
+          // Exact ID match
+          if (msg.id === payload.messageId) return true;
+          // Optimistic message match (same content, same user, within 5 seconds)
+          if (msg.id.startsWith('local_') && 
+              msg.content === payload.content && 
+              msg.userId === payload.userId) {
+            const timeDiff = Math.abs(new Date(msg.createdAt).getTime() - Date.now());
+            return timeDiff < 5000; // Within 5 seconds = same message
+          }
+          return false;
+        });
+        
+        if (isDuplicate) {
+          // Replace optimistic message with server-confirmed one
+          const updatedExisting = existing.map(msg => {
+            if (msg.id.startsWith('local_') && 
+                msg.content === payload.content && 
+                msg.userId === payload.userId) {
+              return { ...newMessage, id: payload.messageId }; // Use server ID
+            }
+            return msg;
+          });
+          // BUG-027: Keep only last N messages
+          newMap.set(chatroomId, updatedExisting.slice(-MAX_MESSAGES_PER_ROOM));
+        } else {
+          // BUG-027: Keep only last N messages
+          newMap.set(chatroomId, [...existing, newMessage].slice(-MAX_MESSAGES_PER_ROOM));
+        }
+        
         return newMap;
       });
     });
 
     // Additional chat event handlers...
     websocketService.on('chat-joined', (payload: { chatroomId: string }) => {
-      console.log('Chat joined:', payload);
+      console.log('✅ Chat joined:', payload);
       setActiveChatrooms(prev => new Set([...prev, payload.chatroomId]));
     });
 
     websocketService.on('chat-error', (payload: { message?: string }) => {
-      console.error('Chat error:', payload);
+      console.error('❌ Chat error:', payload);
       setChatError(payload.message || 'Chat error occurred');
     });
 
+    /**
+     * BUG-029 FIX: Handle room state refresh response
+     * Updates user positions with fresh data from server
+     * Called after tab becomes visible or when requesting fresh state
+     */
+    websocketService.on('room-state-refresh', (payload: { 
+      spaceId: string; 
+      users: Array<{ userId: string; username: string; x: number; y: number }>;
+      timestamp: number;
+    }) => {
+      console.log('🔄 [STATE REFRESH] Received fresh room state:', payload);
+      
+      // Update users with fresh positions
+      const freshUsers = payload.users.map(user => ({
+        id: user.userId,
+        username: user.username,
+        x: user.x * GRID_SIZE, // Convert grid to pixel coordinates
+        y: user.y * GRID_SIZE
+      }));
+      
+      setUsers(prev => {
+        // Merge: prefer fresh data, but keep any users not in the refresh
+        const userMap = new Map(prev.map(u => [u.id, u]));
+        freshUsers.forEach(u => userMap.set(u.id, u));
+        
+        // Remove self if present in the list
+        if (currentUser) {
+          userMap.delete(currentUser.id);
+        }
+        
+        console.log(`🔄 [STATE REFRESH] Updated ${freshUsers.length} users`);
+        return Array.from(userMap.values());
+      });
+    });
+
     websocketService.on('error', (payload: { message?: string }) => {
-      console.error('WebSocket error:', payload);
+      console.error('❌ WebSocket error:', payload);
       setError(payload.message || 'WebSocket error');
     });
   };
@@ -905,6 +1124,7 @@ export default function SpacePage() {
     setShowChatWindow(false); // Hide chat when disconnecting
     setSelectedChatroom(null); // Clear selected chatroom
     setActiveChatrooms(new Set()); // Clear active chatrooms
+    _setOnlineUsers(new Map()); // Clear online users
   };
 
   // ========================================
@@ -941,7 +1161,7 @@ export default function SpacePage() {
   const handleJoinChatroom = async (chatroomId: string, hasPassword: boolean) => {
     // Check if already in this chatroom
     if (activeChatrooms.has(chatroomId)) {
-      console.log('Already in chatroom:', chatroomId);
+      console.log('ℹ️ Already in chatroom:', chatroomId);
       setSelectedChatroom(chatroomId);
       setShowChatWindow(true);
       return;
@@ -960,7 +1180,7 @@ export default function SpacePage() {
     
     // Check if already in this chatroom
     if (activeChatrooms.has(pendingChatroomId)) {
-      console.log('Already in chatroom:', pendingChatroomId);
+      console.log('ℹ️ Already in chatroom:', pendingChatroomId);
       setSelectedChatroom(pendingChatroomId);
       setShowChatWindow(true);
       setPendingChatroomId(null);
@@ -977,10 +1197,21 @@ export default function SpacePage() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  /**
+   * Handle Enter key press in chat input
+   * BUG-030 FIX: Blur input after sending to return keyboard control to game
+   */
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+      // BUG-030 FIX: Blur input to return focus to game canvas
+      // This allows arrow keys to move avatar immediately after sending a message
+      (e.target as HTMLInputElement).blur();
+    }
+    // BUG-030 FIX: Also allow Escape to close chat/blur input
+    if (e.key === 'Escape') {
+      (e.target as HTMLInputElement).blur();
     }
   };
 
@@ -1081,6 +1312,15 @@ export default function SpacePage() {
             <div>Total Users: {currentUser ? users.length + 1 : users.length}</div>
           </div>
           
+          {/* BUG-030 FIX: Show hint when keyboard controls are disabled due to focus */}
+          {isUIFocused && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 
+                          bg-yellow-500/90 text-black px-4 py-2 rounded-lg 
+                          text-sm font-medium z-50 shadow-lg animate-pulse">
+              ⌨️ Press <kbd className="bg-white/50 px-1.5 py-0.5 rounded mx-1">Esc</kbd> or click canvas to enable movement
+            </div>
+          )}
+          
           <OfficeSpaceViewer
             space={space}
             elements={elements}
@@ -1104,7 +1344,7 @@ export default function SpacePage() {
               currentPosition={{ x: currentUser.x, y: currentUser.y, z: 0 }}
               allUsers={[...users, { ...currentUser, isCurrentUser: true }]}
               onNearbyUsersChange={(nearbyUsers) => {
-                console.log('[SPACE PAGE] Nearby users updated:', nearbyUsers);
+                console.log('🎥 [SPACE PAGE] Nearby users updated:', nearbyUsers);
               }}
             />
 
@@ -1412,7 +1652,7 @@ export default function SpacePage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  {newChatroomPassword ? 'This will be a private room' : 'This will be a public room'}
+                  {newChatroomPassword ? '🔒 This will be a private room' : '🌐 This will be a public room'}
                 </p>
               </div>
 

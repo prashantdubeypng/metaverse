@@ -1,7 +1,19 @@
-"use client";
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useProximityVideoCall } from '@/hooks/useProximityVideoCall';
+
+/**
+ * ProximityVideoCallUI - Video call UI component
+ * 
+ * PURPOSE:
+ * Displays proximity-based video calls in a draggable, resizable window.
+ * Shows local and remote video streams with controls for mute, camera, and screen share.
+ * 
+ * BUG FIXES:
+ * - BUG-002: Fixed video stream black screen by adding proper stream handling,
+ *   autoplay policy handling, and retry logic
+ * 
+ * @see docs/bugs/video-calling/BUG-002-video-stream-black-screen.md
+ */
 
 interface VideoStreamProps {
   stream: MediaStream | null;
@@ -12,6 +24,15 @@ interface VideoStreamProps {
   className?: string;
 }
 
+/**
+ * VideoStream component - Handles video element with robust stream attachment
+ * 
+ * BUG-002 FIX: Implements proper stream handling with:
+ * - Metadata load waiting
+ * - Autoplay policy handling (start muted, then unmute)
+ * - Retry logic for failed playback
+ * - Event logging for debugging
+ */
 const VideoStream: React.FC<VideoStreamProps> = ({
   stream,
   isLocal = false,
@@ -21,31 +42,177 @@ const VideoStream: React.FC<VideoStreamProps> = ({
   className = ''
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasError, setHasError] = useState(false);
 
+  /**
+   * BUG-002 FIX: Robust stream attachment with autoplay handling
+   * 
+   * This effect properly attaches the stream and handles browser autoplay policies:
+   * 1. Wait for video element and stream
+   * 2. Set srcObject
+   * 3. Wait for metadata to load
+   * 4. Start muted (to bypass autoplay), then unmute for remote
+   * 5. Retry logic for failures
+   */
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-      // Attempt programmatic play to avoid autoplay policy issues
-      // Mute is applied to allow autoplay across browsers
-      const v = videoRef.current;
-      // Ensure muted to satisfy autoplay; local is already muted, also mute remote for reliability
-      v.muted = true;
-      v.play().catch((err) => {
-        console.warn('Video autoplay was blocked:', err);
-      });
+    const videoElement = videoRef.current;
+    if (!videoElement || !stream) {
+      setIsPlaying(false);
+      return;
     }
-  }, [stream]);
+
+    let isMounted = true;
+    setHasError(false);
+
+    const attachStream = async () => {
+      try {
+        // Set the stream source
+        videoElement.srcObject = stream;
+        
+        // Log video track info for debugging
+        const videoTracks = stream.getVideoTracks();
+        if (videoTracks.length > 0) {
+          console.log(`📹 [BUG-002] ${isLocal ? 'Local' : 'Remote'} video track:`, {
+            readyState: videoTracks[0].readyState,
+            enabled: videoTracks[0].enabled,
+            muted: videoTracks[0].muted,
+            label: videoTracks[0].label
+          });
+        } else {
+          console.warn(`⚠️ [BUG-002] No video tracks in ${isLocal ? 'local' : 'remote'} stream`);
+        }
+        
+        // Wait for metadata to load (with timeout)
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Metadata load timeout after 5s'));
+          }, 5000);
+          
+          const handleMetadata = () => {
+            clearTimeout(timeout);
+            videoElement.removeEventListener('loadedmetadata', handleMetadata);
+            resolve();
+          };
+          
+          // If metadata already loaded (readyState >= 1)
+          if (videoElement.readyState >= 1) {
+            clearTimeout(timeout);
+            resolve();
+            return;
+          }
+          
+          videoElement.addEventListener('loadedmetadata', handleMetadata);
+        });
+        
+        if (!isMounted) return;
+        
+        // BUG-002: Start muted to bypass autoplay policy
+        // For local video, always muted to prevent echo
+        // For remote video, start muted, then unmute after play succeeds
+        videoElement.muted = true;
+        
+        await videoElement.play();
+        
+        if (!isMounted) return;
+        
+        // For remote video, unmute after successful play (if not user-muted)
+        if (!isLocal && !isMuted) {
+          videoElement.muted = false;
+        }
+        
+        setIsPlaying(true);
+        console.log(`✅ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video playing successfully`);
+        
+      } catch (error) {
+        console.error(`❌ [BUG-002] Failed to play ${isLocal ? 'local' : 'remote'} video:`, error);
+        
+        if (!isMounted) return;
+        
+        // Retry with muted video as fallback
+        try {
+          videoElement.muted = true;
+          await videoElement.play();
+          
+          if (isMounted) {
+            setIsPlaying(true);
+            console.log(`⚠️ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video playing muted (autoplay policy)`);
+          }
+        } catch (retryError) {
+          console.error(`❌ [BUG-002] Failed to play ${isLocal ? 'local' : 'remote'} video even when muted:`, retryError);
+          if (isMounted) {
+            setHasError(true);
+          }
+        }
+      }
+    };
+
+    attachStream();
+
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      videoElement.srcObject = null;
+    };
+  }, [stream, isLocal, isMuted]);
+
+  // Handle track ended events
+  useEffect(() => {
+    if (!stream) return;
+
+    const handleTrackEnded = () => {
+      console.log(`🔴 [BUG-002] Video track ended for ${isLocal ? 'local' : 'remote'} stream`);
+      setIsPlaying(false);
+    };
+
+    const videoTracks = stream.getVideoTracks();
+    videoTracks.forEach(track => {
+      track.addEventListener('ended', handleTrackEnded);
+    });
+
+    return () => {
+      videoTracks.forEach(track => {
+        track.removeEventListener('ended', handleTrackEnded);
+      });
+    };
+  }, [stream, isLocal]);
 
   return (
     <div className={`relative rounded-lg overflow-hidden bg-gray-900 ${className}`}>
       {stream && !isVideoOff ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={true} // Mute to satisfy autoplay; we can add speaker controls later
-          className="w-full h-full object-cover"
-        />
+        <>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isLocal} // Always mute local video to prevent feedback
+            className="w-full h-full object-cover"
+            onLoadedMetadata={() => console.log(`📹 [BUG-002] ${isLocal ? 'Local' : 'Remote'} video metadata loaded`)}
+            onPlay={() => console.log(`▶️ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video play event`)}
+            onError={(e) => {
+              console.error(`❌ [BUG-002] ${isLocal ? 'Local' : 'Remote'} video error:`, e);
+              setHasError(true);
+            }}
+          />
+          {/* BUG-002: Error overlay */}
+          {hasError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90">
+              <div className="text-center">
+                <svg className="w-8 h-8 text-red-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-white text-xs">Video unavailable</p>
+                <p className="text-gray-400 text-xs">Check camera permissions</p>
+              </div>
+            </div>
+          )}
+          {/* BUG-002: Loading indicator */}
+          {!isPlaying && !hasError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-gray-800">
           <div className="text-center">
@@ -109,7 +276,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
     error,
     toggleMute,
     toggleCamera,
-    toggleScreenShare: _toggleScreenShare,
+    toggleScreenShare,
     endCall,
     clearError,
     initialize,
@@ -126,17 +293,6 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const windowRef = useRef<HTMLDivElement>(null);
-
-  // Window pixel sizes (to keep right edge anchored)
-  const getWindowPixelWidth = useCallback(() => {
-    if (isMinimized) return 288; // ~w-72
-    return isExpanded ? 760 : 560; // arbitrary sizes tuned for 2 side-by-side videos
-  }, [isMinimized, isExpanded]);
-
-  const getWindowPixelHeight = useCallback(() => {
-    if (isMinimized) return 48; // ~h-12
-    return isExpanded ? 420 : 280;
-  }, [isMinimized, isExpanded]);
 
   // Initialize video call manager
   useEffect(() => {
@@ -182,13 +338,12 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
   // Initialize window position (right side of screen)
   useEffect(() => {
     if (isCallActive && position.x === 0 && position.y === 0) {
-      const width = getWindowPixelWidth();
       setPosition({
-        x: Math.max(0, window.innerWidth - width - 16), // 16px margin from right
+        x: window.innerWidth - 320, // 320px from right edge
         y: 100 // 100px from top
       });
     }
-  }, [isCallActive, position.x, position.y, getWindowPixelWidth]);
+  }, [isCallActive, position.x, position.y]);
 
   // Dragging handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -204,14 +359,12 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging) {
-      const width = windowRef.current?.offsetWidth ?? getWindowPixelWidth();
-      const height = windowRef.current?.offsetHeight ?? getWindowPixelHeight();
       setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - width, e.clientX - dragOffset.x)),
-        y: Math.max(0, Math.min(window.innerHeight - height, e.clientY - dragOffset.y))
+        x: Math.max(0, Math.min(window.innerWidth - 300, e.clientX - dragOffset.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 200, e.clientY - dragOffset.y))
       });
     }
-  }, [isDragging, dragOffset, getWindowPixelWidth, getWindowPixelHeight]);
+  }, [isDragging, dragOffset]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -231,7 +384,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
 
   // Debug logging
   useEffect(() => {
-    console.log('[ProximityVideoCallUI] State update:', {
+    console.log('🎥 [ProximityVideoCallUI] State update:', {
       isCallActive,
       participantsCount: participants.length,
       hasLocalStream: !!localStream,
@@ -249,15 +402,28 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
     
     const totalParticipants = participants.length + (localStream ? 1 : 0);
 
-    // Always show two side-by-side when there are at least two streams
-    if (totalParticipants >= 2) return 'grid-cols-2';
-    return 'grid-cols-1';
+    if (isExpanded) {
+      if (totalParticipants <= 2) {
+        return 'grid-cols-1 md:grid-cols-2';
+      } else if (totalParticipants <= 4) {
+        return 'grid-cols-2';
+      } else {
+        return 'grid-cols-3';
+      }
+    } else {
+      // Compact mode - single column
+      return 'grid-cols-1';
+    }
   };
 
   const getWindowSize = () => {
-    if (isMinimized) return 'w-72 h-12';
-    // Arbitrary pixel sizes using Tailwind arbitrary values
-    return isExpanded ? 'w-[760px] h-[420px]' : 'w-[560px] h-[280px]';
+    if (isMinimized) {
+      return 'w-64 h-12';
+    } else if (isExpanded) {
+      return 'w-96 h-80';
+    } else {
+      return 'w-80 h-64'; // Default compact size
+    }
   };
 
   return (
@@ -330,18 +496,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
               {/* Expand/Compact button */}
               {!isMinimized && (
                 <button
-                  onClick={() => {
-                    // Keep right edge anchored when toggling size
-                    const prevWidth = getWindowPixelWidth();
-                    const nextExpanded = !isExpanded;
-                    const nextWidth = nextExpanded ? 760 : 560;
-                    const delta = prevWidth - nextWidth; // positive if shrinking
-                    setIsExpanded(nextExpanded);
-                    setPosition(prev => ({
-                      x: Math.max(0, prev.x + delta),
-                      y: prev.y
-                    }));
-                  }}
+                  onClick={() => setIsExpanded(!isExpanded)}
                   className="w-5 h-5 rounded hover:bg-gray-600 flex items-center justify-center transition-colors"
                   title={isExpanded ? 'Compact' : 'Expand'}
                 >
@@ -366,7 +521,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
       {/* Video grid */}
       {!isMinimized && (
         <div className="p-3">
-          <div className={`grid gap-3 ${getVideoLayout()}`}>
+          <div className={`grid gap-2 ${getVideoLayout()}`}>
             {/* Local video (always first) */}
             {localStream && (
               <VideoStream
@@ -375,7 +530,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
                 username={username}
                 isMuted={isMuted}
                 isVideoOff={isCameraOff}
-                className={`aspect-video ${isExpanded ? 'h-[300px]' : 'h-[160px]'}`}
+                className={`aspect-video ${isExpanded ? 'h-40' : 'h-24'}`}
               />
             )}
 
@@ -387,7 +542,7 @@ const ProximityVideoCallUI: React.FC<ProximityVideoCallUIProps> = ({
                 username={participant.username}
                 isMuted={!participant.isAudioEnabled}
                 isVideoOff={!participant.isVideoEnabled}
-                className={`aspect-video ${isExpanded ? 'h-[300px]' : 'h-[160px]'}`}
+                className={`aspect-video ${isExpanded ? 'h-40' : 'h-24'}`}
               />
             ))}
           </div>

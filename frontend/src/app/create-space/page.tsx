@@ -2,9 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import ProtectedRoute from '@/components/ProtectedRoute';
 import { getTokenData, clearTokenData } from "@/utils/auth";
-import { ENV } from '@/CONFIG/env.config';
 
 type SpaceRequestBody =
   | { name: string; mapId: string }
@@ -43,7 +41,7 @@ export default function CreateSpacePage() {
       }
 
       const response = await fetch(
-        `${ENV.API_URL}/user/space/maps/refernce`,
+        "http://localhost:8000/api/v1/user/space/maps/refernce",
         {
           method: "GET",
           headers: {
@@ -113,7 +111,7 @@ export default function CreateSpacePage() {
       }
 console.log("tokenData in CreateSpacePage:", tokenData);
 console.log('i am sending the data to the route')
-      const response = await fetch(`${ENV.API_URL}/space/`, {
+      const response = await fetch("http://localhost:8000/api/v1/space/", {
         method: "POST",
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,

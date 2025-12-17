@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { setTokenData, isAuthenticated, getUserRole } from '@/utils/auth';
-import { ENDPOINTS } from '@/CONFIG/env.config';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -33,9 +32,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      console.log("login route testing ")
-      console.log(ENDPOINTS.auth.login)
-  const response = await fetch(ENDPOINTS.auth.login, {
+      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -49,26 +46,27 @@ export default function LoginPage() {
 
       const data = await response.json();
 
-      // Store token and decode user data from JWT
-      if (data.token) {
+      // Store token and user data
+      // Backend returns: { user, accessToken, expiresIn }
+      if (data.accessToken) {
         // Decode JWT to get user info (simple base64 decode for payload)
-        const tokenParts = data.token.split('.');
+        const tokenParts = data.accessToken.split('.');
         const payload = JSON.parse(atob(tokenParts[1]));
 
         const userData = {
-          id: payload.userId,
-          username: payload.username,
-          email: payload.email || '', // Add email if available in JWT
-          role: payload.role
+          id: data.user?.id || payload.userId,
+          username: data.user?.username || payload.username,
+          email: data.user?.email || '',
+          role: data.user?.role || payload.role
         };
 
         setTokenData({
-          token: data.token,
+          token: data.accessToken,
           user: userData
         });
 
         // Redirect based on user role
-        if (payload.role === 'Admin') {
+        if (userData.role === 'Admin') {
           router.push('/admin');
         } else {
           router.push('/dashboard');
@@ -142,14 +140,6 @@ export default function LoginPage() {
                 className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 placeholder="Enter your password"
               />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="text-sm">
-              <Link href="/forgot-password" className="font-medium text-indigo-600 hover:text-indigo-500">
-                Forgot your password?
-              </Link>
             </div>
           </div>
 

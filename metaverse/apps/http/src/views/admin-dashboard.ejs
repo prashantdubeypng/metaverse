@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Metaverse Admin Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #334155;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --accent-yellow: #f59e0b;
+      --accent-blue: #3b82f6;
+      --accent-purple: #8b5cf6;
+    }
+    
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .glass-card {
+      background: rgba(30, 41, 59, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      border-radius: 16px;
+      transition: all 0.3s ease;
+    }
+    
+    .glass-card:hover {
+      border-color: rgba(148, 163, 184, 0.2);
+      transform: translateY(-2px);
+    }
+    
+    .status-healthy {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+    }
+    
+    .status-unhealthy {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+    }
+    
+    .status-degraded {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3);
+    }
+    
+    .status-unknown {
+      background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+      box-shadow: 0 4px 20px rgba(107, 114, 128, 0.3);
+    }
+    
+    .pulse-dot {
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .stat-card {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+    }
+    
+    .log-entry {
+      border-left: 3px solid var(--accent-blue);
+      transition: all 0.2s ease;
+    }
+    
+    .log-entry:hover {
+      background: rgba(59, 130, 246, 0.1);
+    }
+    
+    .log-entry.error {
+      border-left-color: var(--accent-red);
+    }
+    
+    .log-entry.warn {
+      border-left-color: var(--accent-yellow);
+    }
+    
+    .log-entry.info {
+      border-left-color: var(--accent-blue);
+    }
+    
+    .sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    }
+    
+    .nav-item {
+      transition: all 0.2s ease;
+    }
+    
+    .nav-item:hover, .nav-item.active {
+      background: rgba(59, 130, 246, 0.2);
+      border-left: 3px solid var(--accent-blue);
+    }
+    
+    .refresh-btn {
+      transition: all 0.3s ease;
+    }
+    
+    .refresh-btn:hover {
+      transform: rotate(180deg);
+    }
+    
+    .progress-ring {
+      transform: rotate(-90deg);
+    }
+    
+    .scrollbar-custom::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .scrollbar-custom::-webkit-scrollbar-track {
+      background: var(--bg-secondary);
+    }
+    
+    .scrollbar-custom::-webkit-scrollbar-thumb {
+      background: var(--text-secondary);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <!-- Header -->
+  <header class="fixed top-0 left-0 right-0 z-50 glass-card rounded-none border-t-0 border-l-0 border-r-0">
+    <div class="flex items-center justify-between px-6 py-4">
+      <div class="flex items-center space-x-4">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+          <i class="fas fa-cube text-white text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold">Metaverse Admin</h1>
+          <p class="text-xs text-gray-400">System Dashboard</p>
+        </div>
+      </div>
+      
+      <div class="flex items-center space-x-4">
+        <div class="flex items-center space-x-2 px-4 py-2 glass-card">
+          <span class="pulse-dot w-2 h-2 rounded-full <%= data.health.status === 'healthy' ? 'bg-green-500' : data.health.status === 'degraded' ? 'bg-yellow-500' : 'bg-red-500' %>"></span>
+          <span class="text-sm capitalize"><%= data.health.status %></span>
+        </div>
+        <button onclick="location.reload()" class="refresh-btn p-2 rounded-lg hover:bg-gray-700">
+          <i class="fas fa-sync-alt text-gray-400"></i>
+        </button>
+        <span class="text-sm text-gray-400">
+          <i class="far fa-clock mr-1"></i>
+          <%= new Date(data.timestamp).toLocaleString() %>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex pt-20">
+    <!-- Sidebar -->
+    <aside class="fixed left-0 top-20 bottom-0 w-64 sidebar border-r border-gray-800 p-4">
+      <nav class="space-y-2">
+        <a href="#overview" class="nav-item active flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-th-large w-5"></i>
+          <span>Overview</span>
+        </a>
+        <a href="#health" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-heartbeat w-5"></i>
+          <span>Health Checks</span>
+        </a>
+        <a href="#database" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-database w-5"></i>
+          <span>Database</span>
+        </a>
+        <a href="#redis" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-bolt w-5"></i>
+          <span>Redis</span>
+        </a>
+        <a href="#system" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-server w-5"></i>
+          <span>System</span>
+        </a>
+        <a href="#logs" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-scroll w-5"></i>
+          <span>Logs</span>
+        </a>
+        <a href="#users" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-users w-5"></i>
+          <span>Users</span>
+        </a>
+        <a href="#spaces" class="nav-item flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300">
+          <i class="fas fa-globe w-5"></i>
+          <span>Spaces</span>
+        </a>
+      </nav>
+      
+      <div class="absolute bottom-4 left-4 right-4">
+        <div class="glass-card p-4">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center">
+              <i class="fas fa-user text-white text-sm"></i>
+            </div>
+            <div>
+              <p class="text-sm font-medium">Admin</p>
+              <p class="text-xs text-gray-400">Authenticated</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="ml-64 flex-1 p-6">
+      <!-- Overview Section -->
+      <section id="overview" class="mb-8">
+        <h2 class="text-2xl font-bold mb-6">System Overview</h2>
+        
+        <!-- Status Banner -->
+        <div class="glass-card p-6 mb-6 status-<%= data.health.status %>">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+              <div class="w-16 h-16 rounded-2xl bg-white bg-opacity-20 flex items-center justify-center">
+                <% if (data.health.status === 'healthy') { %>
+                  <i class="fas fa-check-circle text-3xl text-white"></i>
+                <% } else if (data.health.status === 'degraded') { %>
+                  <i class="fas fa-exclamation-triangle text-3xl text-white"></i>
+                <% } else { %>
+                  <i class="fas fa-times-circle text-3xl text-white"></i>
+                <% } %>
+              </div>
+              <div>
+                <h3 class="text-2xl font-bold text-white capitalize">System <%= data.health.status %></h3>
+                <p class="text-white text-opacity-80">
+                  <% const healthyCount = Object.values(data.health.checks).filter(c => c.status === 'healthy').length; %>
+                  <%= healthyCount %>/<%= Object.keys(data.health.checks).length %> services operational
+                </p>
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="text-white text-opacity-60 text-sm">Last checked</p>
+              <p class="text-white font-mono"><%= new Date(data.timestamp).toLocaleTimeString() %></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="glass-card stat-card p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-gray-400 text-sm">Total Users</p>
+                <p class="text-3xl font-bold"><%= data.database.counts.users %></p>
+                <p class="text-green-400 text-sm mt-1">
+                  <i class="fas fa-arrow-up mr-1"></i>+<%= data.database.last24Hours.newUsers %> today
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-blue-500 bg-opacity-20 flex items-center justify-center">
+                <i class="fas fa-users text-blue-400 text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="glass-card stat-card p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-gray-400 text-sm">Total Spaces</p>
+                <p class="text-3xl font-bold"><%= data.database.counts.spaces %></p>
+                <p class="text-green-400 text-sm mt-1">
+                  <i class="fas fa-arrow-up mr-1"></i>+<%= data.database.last24Hours.newSpaces %> today
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-purple-500 bg-opacity-20 flex items-center justify-center">
+                <i class="fas fa-globe text-purple-400 text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="glass-card stat-card p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-gray-400 text-sm">Elements</p>
+                <p class="text-3xl font-bold"><%= data.database.counts.elements %></p>
+                <p class="text-gray-400 text-sm mt-1">Map elements</p>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-green-500 bg-opacity-20 flex items-center justify-center">
+                <i class="fas fa-cubes text-green-400 text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="glass-card stat-card p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-gray-400 text-sm">Avatars</p>
+                <p class="text-3xl font-bold"><%= data.database.counts.avatars %></p>
+                <p class="text-gray-400 text-sm mt-1">Available avatars</p>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-yellow-500 bg-opacity-20 flex items-center justify-center">
+                <i class="fas fa-user-astronaut text-yellow-400 text-xl"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Health Checks Section -->
+      <section id="health" class="mb-8">
+        <h2 class="text-2xl font-bold mb-6">Service Health</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <% Object.entries(data.health.checks).forEach(([service, check]) => { %>
+            <div class="glass-card p-6">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 rounded-lg <%= check.status === 'healthy' ? 'bg-green-500' : check.status === 'unknown' ? 'bg-gray-500' : 'bg-red-500' %> bg-opacity-20 flex items-center justify-center">
+                    <% if (service === 'http') { %>
+                      <i class="fas fa-server <%= check.status === 'healthy' ? 'text-green-400' : check.status === 'unknown' ? 'text-gray-400' : 'text-red-400' %>"></i>
+                    <% } else if (service === 'database') { %>
+                      <i class="fas fa-database <%= check.status === 'healthy' ? 'text-green-400' : check.status === 'unknown' ? 'text-gray-400' : 'text-red-400' %>"></i>
+                    <% } else if (service === 'redis') { %>
+                      <i class="fas fa-bolt <%= check.status === 'healthy' ? 'text-green-400' : check.status === 'unknown' ? 'text-gray-400' : 'text-red-400' %>"></i>
+                    <% } else if (service === 'websocket') { %>
+                      <i class="fas fa-plug <%= check.status === 'healthy' ? 'text-green-400' : check.status === 'unknown' ? 'text-gray-400' : 'text-red-400' %>"></i>
+                    <% } else { %>
+                      <i class="fas fa-cog <%= check.status === 'healthy' ? 'text-green-400' : check.status === 'unknown' ? 'text-gray-400' : 'text-red-400' %>"></i>
+                    <% } %>
+                  </div>
+                  <div>
+                    <h3 class="font-semibold capitalize"><%= service %></h3>
+                    <p class="text-xs text-gray-400 capitalize"><%= check.status %></p>
+                  </div>
+                </div>
+                <span class="pulse-dot w-3 h-3 rounded-full <%= check.status === 'healthy' ? 'bg-green-500' : check.status === 'unknown' ? 'bg-gray-500' : 'bg-red-500' %>"></span>
+              </div>
+              
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-400">Latency</span>
+                  <span class="font-mono <%= check.latency < 50 ? 'text-green-400' : check.latency < 200 ? 'text-yellow-400' : 'text-red-400' %>">
+                    <%= check.latency %>ms
+                  </span>
+                </div>
+                <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div class="h-full <%= check.latency < 50 ? 'bg-green-500' : check.latency < 200 ? 'bg-yellow-500' : 'bg-red-500' %> rounded-full" 
+                       style="width: <%= Math.min(check.latency / 5, 100) %>%"></div>
+                </div>
+                <% if (check.error) { %>
+                  <p class="text-xs text-red-400 mt-2">
+                    <i class="fas fa-exclamation-circle mr-1"></i><%= check.error %>
+                  </p>
+                <% } %>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      </section>
+
+      <!-- Database Section -->
+      <section id="database" class="mb-8">
+        <h2 class="text-2xl font-bold mb-6">Database Statistics</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Database Connection Status -->
+          <div class="glass-card p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">Connection Status</h3>
+              <div class="flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full <%= data.database.status === 'connected' ? 'bg-green-400 pulse-dot' : 'bg-red-400' %>"></span>
+                <span class="text-sm <%= data.database.status === 'connected' ? 'text-green-400' : 'text-red-400' %>">
+                  <%= data.database.status === 'connected' ? 'Connected' : 'Disconnected' %>
+                </span>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-gray-800 bg-opacity-50 rounded-lg p-4 text-center">
+                <div class="w-10 h-10 mx-auto rounded-lg bg-blue-500 bg-opacity-20 flex items-center justify-center mb-2">
+                  <i class="fas fa-users text-blue-400"></i>
+                </div>
+                <p class="text-2xl font-bold"><%= data.database.counts.users %></p>
+                <p class="text-gray-400 text-sm">Users</p>
+                <p class="text-green-400 text-xs mt-1">+<%= data.database.last24Hours.newUsers %> today</p>
+              </div>
+              <div class="bg-gray-800 bg-opacity-50 rounded-lg p-4 text-center">
+                <div class="w-10 h-10 mx-auto rounded-lg bg-purple-500 bg-opacity-20 flex items-center justify-center mb-2">
+                  <i class="fas fa-globe text-purple-400"></i>
+                </div>
+                <p class="text-2xl font-bold"><%= data.database.counts.spaces %></p>
+                <p class="text-gray-400 text-sm">Spaces</p>
+                <p class="text-green-400 text-xs mt-1">+<%= data.database.last24Hours.newSpaces %> today</p>
+              </div>
+              <div class="bg-gray-800 bg-opacity-50 rounded-lg p-4 text-center">
+                <div class="w-10 h-10 mx-auto rounded-lg bg-green-500 bg-opacity-20 flex items-center justify-center mb-2">
+                  <i class="fas fa-cubes text-green-400"></i>
+                </div>
+                <p class="text-2xl font-bold"><%= data.database.counts.elements %></p>
+                <p class="text-gray-400 text-sm">Elements</p>
+              </div>
+              <div class="bg-gray-800 bg-opacity-50 rounded-lg p-4 text-center">
+                <div class="w-10 h-10 mx-auto rounded-lg bg-yellow-500 bg-opacity-20 flex items-center justify-center mb-2">
+                  <i class="fas fa-user-astronaut text-yellow-400"></i>
+                </div>
+                <p class="text-2xl font-bold"><%= data.database.counts.avatars %></p>
+                <p class="text-gray-400 text-sm">Avatars</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Database Info -->
+          <div class="glass-card p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">PostgreSQL Info</h3>
+              <i class="fas fa-database text-blue-400"></i>
+            </div>
+            <div class="space-y-4">
+              <div class="flex justify-between items-center py-2 border-b border-gray-700">
+                <span class="text-gray-400">Database Engine</span>
+                <span class="font-mono text-blue-400">PostgreSQL</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-gray-700">
+                <span class="text-gray-400">Host</span>
+                <span class="font-mono">localhost:5432</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-gray-700">
+                <span class="text-gray-400">Database Name</span>
+                <span class="font-mono">metaverse_db</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-gray-700">
+                <span class="text-gray-400">Total Records</span>
+                <span class="font-mono">
+                  <%= data.database.counts.users + data.database.counts.spaces + data.database.counts.elements + data.database.counts.avatars %>
+                </span>
+              </div>
+              <div class="flex justify-between items-center py-2">
+                <span class="text-gray-400">ORM</span>
+                <span class="font-mono text-green-400">Prisma</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- System Stats Section -->
+      <section id="system" class="mb-8">
+        <h2 class="text-2xl font-bold mb-6">System Resources</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- CPU -->
+          <div class="glass-card p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">CPU Usage</h3>
+              <i class="fas fa-microchip text-blue-400"></i>
+            </div>
+            <div class="flex items-center justify-center mb-4">
+              <div class="relative w-32 h-32">
+                <svg class="w-32 h-32 progress-ring">
+                  <circle cx="64" cy="64" r="56" stroke="#374151" stroke-width="8" fill="none"/>
+                  <circle cx="64" cy="64" r="56" stroke="#3b82f6" stroke-width="8" fill="none"
+                          stroke-dasharray="<%= 352 * (data.system.cpu.usage / 100) %> 352"
+                          stroke-linecap="round"/>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center">
+                  <span class="text-2xl font-bold"><%= data.system.cpu.usage.toFixed(1) %>%</span>
+                </div>
+              </div>
+            </div>
+            <div class="text-center text-sm text-gray-400">
+              <%= data.system.cpu.cores %> cores · <%= data.system.cpu.model.split(' ').slice(0, 3).join(' ') %>
+            </div>
+          </div>
+          
+          <!-- Memory -->
+          <div class="glass-card p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">Memory Usage</h3>
+              <i class="fas fa-memory text-purple-400"></i>
+            </div>
+            <div class="flex items-center justify-center mb-4">
+              <div class="relative w-32 h-32">
+                <svg class="w-32 h-32 progress-ring">
+                  <circle cx="64" cy="64" r="56" stroke="#374151" stroke-width="8" fill="none"/>
+                  <circle cx="64" cy="64" r="56" stroke="#8b5cf6" stroke-width="8" fill="none"
+                          stroke-dasharray="<%= 352 * (data.system.memory.usagePercent / 100) %> 352"
+                          stroke-linecap="round"/>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center">
+                  <span class="text-2xl font-bold"><%= data.system.memory.usagePercent.toFixed(1) %>%</span>
+                </div>
+              </div>
+            </div>
+            <div class="text-center text-sm text-gray-400">
+              <%= (data.system.memory.used / 1024 / 1024 / 1024).toFixed(1) %>GB / <%= (data.system.memory.total / 1024 / 1024 / 1024).toFixed(1) %>GB
+            </div>
+          </div>
+          
+          <!-- Uptime -->
+          <div class="glass-card p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">System Uptime</h3>
+              <i class="fas fa-clock text-green-400"></i>
+            </div>
+            <div class="flex items-center justify-center mb-4">
+              <div class="text-center">
+                <% 
+                  const uptime = data.system.uptime;
+                  const days = Math.floor(uptime / 86400);
+                  const hours = Math.floor((uptime % 86400) / 3600);
+                  const minutes = Math.floor((uptime % 3600) / 60);
+                %>
+                <div class="text-4xl font-bold text-green-400"><%= days %></div>
+                <div class="text-gray-400">days</div>
+              </div>
+            </div>
+            <div class="text-center text-sm text-gray-400">
+              <%= hours %>h <%= minutes %>m uptime
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Redis Stats Section -->
+      <section id="redis" class="mb-8">
+        <h2 class="text-2xl font-bold mb-6">Redis Statistics</h2>
+        <div class="glass-card p-6">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div class="text-center">
+              <div class="w-12 h-12 mx-auto rounded-xl bg-red-500 bg-opacity-20 flex items-center justify-center mb-2">
+                <i class="fas fa-database text-red-400"></i>
+              </div>
+              <p class="text-2xl font-bold"><%= data.redis.dbSize %></p>
+              <p class="text-gray-400 text-sm">Total Keys</p>
+            </div>
+            <div class="text-center">
+              <div class="w-12 h-12 mx-auto rounded-xl bg-blue-500 bg-opacity-20 flex items-center justify-center mb-2">
+                <i class="fas fa-hdd text-blue-400"></i>
+              </div>
+              <p class="text-2xl font-bold"><%= data.redis.memory %></p>
+              <p class="text-gray-400 text-sm">Memory Used</p>
+            </div>
+            <div class="text-center">
+              <div class="w-12 h-12 mx-auto rounded-xl bg-green-500 bg-opacity-20 flex items-center justify-center mb-2">
+                <i class="fas fa-users text-green-400"></i>
+              </div>
+              <p class="text-2xl font-bold"><%= data.redis.connectedClients %></p>
+              <p class="text-gray-400 text-sm">Connected Clients</p>
+            </div>
+            <div class="text-center">
+              <div class="w-12 h-12 mx-auto rounded-xl bg-yellow-500 bg-opacity-20 flex items-center justify-center mb-2">
+                <i class="fas fa-clock text-yellow-400"></i>
+              </div>
+              <% 
+                const redisUptime = data.redis.uptimeSeconds;
+                const redisDays = Math.floor(redisUptime / 86400);
+              %>
+              <p class="text-2xl font-bold"><%= redisDays %>d</p>
+              <p class="text-gray-400 text-sm">Redis Uptime</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recent Logs Section -->
+      <section id="logs" class="mb-8">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-bold">Recent Logs</h2>
+          <div class="flex space-x-2">
+            <button onclick="filterLogs('all')" class="px-3 py-1 rounded-lg bg-gray-700 text-sm hover:bg-gray-600">All</button>
+            <button onclick="filterLogs('error')" class="px-3 py-1 rounded-lg bg-red-900 text-red-400 text-sm hover:bg-red-800">Errors</button>
+            <button onclick="filterLogs('warn')" class="px-3 py-1 rounded-lg bg-yellow-900 text-yellow-400 text-sm hover:bg-yellow-800">Warnings</button>
+            <button onclick="filterLogs('info')" class="px-3 py-1 rounded-lg bg-blue-900 text-blue-400 text-sm hover:bg-blue-800">Info</button>
+          </div>
+        </div>
+        <div class="glass-card p-4 max-h-96 overflow-y-auto scrollbar-custom">
+          <% if (data.logs && data.logs.length > 0) { %>
+            <% data.logs.slice(0, 50).forEach(log => { %>
+              <div class="log-entry <%= log.level %> p-3 mb-2 rounded-r-lg bg-gray-800 bg-opacity-50">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center space-x-3">
+                    <span class="px-2 py-1 rounded text-xs font-mono uppercase
+                      <%= log.level === 'error' ? 'bg-red-900 text-red-400' : 
+                          log.level === 'warn' ? 'bg-yellow-900 text-yellow-400' : 
+                          'bg-blue-900 text-blue-400' %>">
+                      <%= log.level %>
+                    </span>
+                    <span class="text-gray-300"><%= log.message %></span>
+                  </div>
+                  <span class="text-gray-500 text-xs font-mono">
+                    <%= new Date(log.timestamp).toLocaleTimeString() %>
+                  </span>
+                </div>
+              </div>
+            <% }); %>
+          <% } else { %>
+            <div class="text-center text-gray-400 py-8">
+              <i class="fas fa-inbox text-4xl mb-4"></i>
+              <p>No logs available</p>
+            </div>
+          <% } %>
+        </div>
+      </section>
+
+      <!-- Users & Spaces Quick View -->
+      <section id="users" class="mb-8">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Recent Users -->
+          <div>
+            <h2 class="text-2xl font-bold mb-6">Recent Users</h2>
+            <div class="glass-card p-4">
+              <table class="w-full">
+                <thead>
+                  <tr class="text-left text-gray-400 text-sm">
+                    <th class="pb-3">User</th>
+                    <th class="pb-3">Role</th>
+                    <th class="pb-3">Spaces</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% if (data.users && data.users.length > 0) { %>
+                    <% data.users.slice(0, 5).forEach(user => { %>
+                      <tr class="border-t border-gray-700">
+                        <td class="py-3">
+                          <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
+                              <span class="text-white text-sm font-medium"><%= user.username.charAt(0).toUpperCase() %></span>
+                            </div>
+                            <div>
+                              <p class="font-medium"><%= user.username %></p>
+                              <p class="text-xs text-gray-400"><%= user.email %></p>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-3">
+                          <span class="px-2 py-1 rounded text-xs <%= user.role === 'Admin' ? 'bg-purple-900 text-purple-400' : 'bg-gray-700 text-gray-300' %>">
+                            <%= user.role %>
+                          </span>
+                        </td>
+                        <td class="py-3 text-gray-400"><%= user._count?.spaces || 0 %></td>
+                      </tr>
+                    <% }); %>
+                  <% } else { %>
+                    <tr>
+                      <td colspan="3" class="py-8 text-center text-gray-400">No users found</td>
+                    </tr>
+                  <% } %>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Recent Spaces -->
+          <div id="spaces">
+            <h2 class="text-2xl font-bold mb-6">Recent Spaces</h2>
+            <div class="glass-card p-4">
+              <table class="w-full">
+                <thead>
+                  <tr class="text-left text-gray-400 text-sm">
+                    <th class="pb-3">Space</th>
+                    <th class="pb-3">Creator</th>
+                    <th class="pb-3">Members</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% if (data.spaces && data.spaces.length > 0) { %>
+                    <% data.spaces.slice(0, 5).forEach(space => { %>
+                      <tr class="border-t border-gray-700">
+                        <td class="py-3">
+                          <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center">
+                              <i class="fas fa-globe text-white text-sm"></i>
+                            </div>
+                            <div>
+                              <p class="font-medium"><%= space.name %></p>
+                              <p class="text-xs text-gray-400"><%= space.width %>x<%= space.height || 'auto' %></p>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-3 text-gray-400"><%= space.creator?.username || 'Unknown' %></td>
+                        <td class="py-3 text-gray-400"><%= space._count?.members || 0 %></td>
+                      </tr>
+                    <% }); %>
+                  <% } else { %>
+                    <tr>
+                      <td colspan="3" class="py-8 text-center text-gray-400">No spaces found</td>
+                    </tr>
+                  <% } %>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // Smooth scroll for navigation
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function(e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          
+          // Update active nav
+          document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+          this.classList.add('active');
+        }
+      });
+    });
+    
+    // Auto-refresh every 30 seconds
+    setTimeout(() => location.reload(), 30000);
+    
+    // Log filtering (client-side)
+    function filterLogs(level) {
+      const entries = document.querySelectorAll('.log-entry');
+      entries.forEach(entry => {
+        if (level === 'all' || entry.classList.contains(level)) {
+          entry.style.display = 'block';
+        } else {
+          entry.style.display = 'none';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

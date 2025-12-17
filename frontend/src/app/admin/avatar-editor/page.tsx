@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { clearTokenData, getTokenData } from '@/utils/auth';
-import { ENV } from '@/CONFIG/env.config';
 
 export default function AvatarEditorPage() {
   const [avatarName, setAvatarName] = useState('');
@@ -71,7 +70,7 @@ export default function AvatarEditorPage() {
         return;
       }
 
-      const response = await fetch(`${ENV.API_URL}/admin/avatar`, {
+      const response = await fetch('http://localhost:8000/api/v1/admin/avatar/create', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenData.token}`,

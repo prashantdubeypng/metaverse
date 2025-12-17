@@ -1,0 +1,58 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'metaverse-dev'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Scrape configurations
+scrape_configs:
+  # WebSocket Server 1
+  - job_name: 'ws1'
+    static_configs:
+      - targets: ['ws1:3011']
+        labels:
+          server: 'ws1'
+          instance: 'ws1:3011'
+
+  # WebSocket Server 2
+  - job_name: 'ws2'
+    static_configs:
+      - targets: ['ws2:3011']
+        labels:
+          server: 'ws2'
+          instance: 'ws2:3011'
+
+  # WebSocket Server 3
+  - job_name: 'ws3'
+    static_configs:
+      - targets: ['ws3:3011']
+        labels:
+          server: 'ws3'
+          instance: 'ws3:3011'
+
+  # Redis metrics (requires redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'redis'
+
+  # PostgreSQL metrics (requires postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'postgres'
+
+  # Nginx metrics
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:8080']
+        labels:
+          service: 'nginx'

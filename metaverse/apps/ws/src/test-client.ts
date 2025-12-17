@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 
 // Test WebSocket connection with proper authentication
 const JWT_SECRET = 'prashant143tanu'; // Same as in .env
-const WS_URL = 'http://localhost:3001';
+const WS_URL = 'ws://localhost:3001';
 
 // Create a test JWT token
 const testToken = jwt.sign(
@@ -22,7 +22,7 @@ console.log('🔍 Token payload:', jwt.decode(testToken));
 const ws = new WebSocket(WS_URL);
 
 ws.on('open', () => {
-    console.log('✅ Connected to WebSocket server');
+    console.log(' Connected to WebSocket server');
     
     // Send join message with token
     const joinMessage = {

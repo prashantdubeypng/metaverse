@@ -2,20 +2,18 @@ import 'dotenv/config';
 import { WebSocketServer } from 'ws';
 import { User } from './User';
 import { Roommanager } from './Roommanager';
-import { WS_PORT as DEFAULT_WS_PORT } from './config';
+import { WS_PORT } from './config';
 import { startHealthServer } from './healthServer';
 import { RedisService } from './RedisService';
 import { KafkaChatService } from './KafkaChatService';
 import { VideoCallManager } from './VideoCallManager';
 
-// Prefer cloud-assigned PORT when present (Render/Heroku). Fallback to WS_PORT from config.
-const PORT = parseInt(process.env.PORT || `${DEFAULT_WS_PORT}`, 10);
 const wss = new WebSocketServer({ 
-  port: PORT,
-  perMessageDeflate: false 
+  port: WS_PORT,
+  perMessageDeflate: false // Disable compression for better performance
 });
 
-console.log(`WebSocket server starting on port ${PORT}...`);
+console.log(`WebSocket server starting on port ${WS_PORT}...`);
 
 // Initialize Redis and Kafka services
 async function initializeServices() {
@@ -60,7 +58,7 @@ startHealthServer();
 
 // Server event handlers
 wss.on('listening', () => {
-  console.log(`WebSocket server running on port ${PORT}`);
+  console.log(`WebSocket server running on port ${WS_PORT}`);
   console.log(`Ready to handle metaverse connections`);
 });
 

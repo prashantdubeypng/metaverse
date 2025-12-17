@@ -1,7 +1,5 @@
 "use client";
 
-import { ENV } from '@/CONFIG/env.config';
-
 import { useState, useEffect, useCallback } from 'react';
 import { 
   CallState,
@@ -43,7 +41,7 @@ export interface UseVideoCallReturn {
 
 export const useVideoCall = ({ 
   currentUser, 
-  webSocketUrl = ENV.WS_URL 
+  webSocketUrl = 'http://localhost:3001' 
 }: UseVideoCallProps): UseVideoCallReturn => {
   // Core state
   const [callState, setCallState] = useState<CallState>('idle');
@@ -104,17 +102,17 @@ export const useVideoCall = ({
       setCallState('incoming');
     });
     
-    websocketService.on('call-accepted', (_payload) => {
+    websocketService.on('call-accepted', (payload) => {
       setCallState('active');
       setIncomingCall(null);
     });
     
-    websocketService.on('call-rejected', (_payload) => {
+    websocketService.on('call-rejected', (payload) => {
       setCallState('idle');
       setIncomingCall(null);
     });
     
-    websocketService.on('call-ended', (_payload) => {
+    websocketService.on('call-ended', (payload) => {
       setCurrentSession(null);
       setCallState('idle');
       setIncomingCall(null);

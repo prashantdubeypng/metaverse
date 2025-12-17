@@ -1,8 +1,63 @@
-import { EventEmitter } from 'events';
-// Removed unused imports (WebRTCHandler, SignalingMessage)
-import { User, Position3D } from '@/types/video-call';
-import { getTokenData } from '@/utils/auth';
+/**
+ * ProximityVideoCallManager - Manages proximity-based video calls
+ * 
+ * PURPOSE:
+ * This service handles WebRTC-based video calls that are triggered
+ * automatically when users move within proximity range (2 tiles) of each other.
+ * It manages peer connections, media streams, and signaling.
+ * 
+ * ARCHITECTURE:
+ * - Extends EventEmitter for state change notifications
+ * - Uses WebSocket for signaling (offer/answer/ICE candidates)
+ * - Manages multiple peer connections (one per nearby user)
+ * - Tracks local and remote media streams
+ * 
+ * COORDINATE SYSTEM:
+ * - Uses centralized coordinates.ts utility
+ * - Position updates sent to backend in GRID coordinates
+ * - Proximity calculations done in GRID coordinates
+ * - Proximity range: 2 tiles (Manhattan distance)
+ * 
+ * BUG FIXES:
+ * - BUG-001: Uses toGrid() for correct coordinate conversion
+ * - BUG-011: Consistent with centralized coordinate system
+ * 
+ * @author GitHub Copilot
+ * @see docs/bugs/video-calling/BUG-001-proximity-call-not-triggering.md
+ */
 
+import { EventEmitter } from 'events';
+import { User, Position3D } from '@/types/video-call';
+import { GRID_SIZE, toGrid, gridDistance } from '@/utils/coordinates';
+
+/**
+ * Proximity distance in GRID units (tiles)
+ * Users within this many tiles will have video calls initiated
+ */
+const PROXIMITY_DISTANCE_TILES = 2;
+
+/**
+ * BUG-006 FIX: Hysteresis constants for call ending
+ * 
+ * To prevent call flickering when users are at the boundary,
+ * we use different thresholds for starting and ending calls:
+ * - Start call: when distance <= 2 tiles
+ * - End call: when distance > 3 tiles (hysteresis buffer)
+ * 
+ * Additionally, we implement:
+ * - Grace period: Wait 2 seconds before actually ending the call
+ * - Cooldown: Prevent re-initiating call for 3 seconds after ending
+ * 
+ * @see docs/bugs/video-calling/BUG-006-call-not-ending.md
+ */
+const CALL_END_DISTANCE_TILES = PROXIMITY_DISTANCE_TILES + 1; // 3 tiles
+const GRACE_PERIOD_MS = 2000; // 2 seconds before call actually ends
+const COOLDOWN_PERIOD_MS = 3000; // 3 seconds after call ends before new call can start
+
+/**
+ * Extended participant interface with grace period tracking
+ * BUG-006 FIX: Added disconnectGraceTimer for hysteresis
+ */
 interface ProximityCallParticipant {
   userId: string;
   username: string;
@@ -14,6 +69,10 @@ interface ProximityCallParticipant {
   isVideoEnabled: boolean;
   isScreenSharing: boolean;
   connectionState: RTCPeerConnectionState;
+  /** BUG-006: Timer for grace period before disconnecting */
+  disconnectGraceTimer: ReturnType<typeof setTimeout> | null;
+  /** BUG-006: Whether the participant is in "leaving" state */
+  isLeavingProximity: boolean;
 }
 
 interface ProximityVideoCallState {
@@ -46,38 +105,125 @@ class ProximityVideoCallManager extends EventEmitter {
     on: (event: string, listener: (data: unknown) => void) => void;
   } | null = null; // Injected WebSocket service
   private userId: string | null = null;
-  private proximityHeartbeat: ReturnType<typeof setInterval> | null = null;
 
+  /**
+   * BUG-006 FIX: Cooldown map to prevent rapid call start/end cycles
+   * Key: userId, Value: timestamp when cooldown expires
+   */
+  private callCooldowns: Map<string, number> = new Map();
+
+  /**
+   * RTC Configuration for WebRTC peer connections (BUG-003 fix)
+   * 
+   * Includes both STUN and TURN servers for reliable connectivity:
+   * - STUN: Works for simple NAT traversal (~70% success rate)
+   * - TURN: Relay server for restrictive networks (~99% success rate)
+   * 
+   * TURN server credentials should be configured via environment variables.
+   * If not configured, only STUN servers are used (reduced reliability).
+   * 
+   * @see docs/bugs/video-calling/BUG-003-ice-connection-failure.md
+   */
   private rtcConfig: RTCConfiguration = {
     iceServers: [
+      // STUN servers (free, for simple NAT traversal)
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      
+      // TURN server (for restrictive networks - requires configuration)
+      // Only add if credentials are configured
+      ...(typeof process !== 'undefined' && 
+          process.env?.NEXT_PUBLIC_TURN_SERVER_URL ? [{
+        urls: [
+          process.env.NEXT_PUBLIC_TURN_SERVER_URL,
+          process.env.NEXT_PUBLIC_TURN_SERVER_URL + '?transport=tcp',
+        ],
+        username: process.env.NEXT_PUBLIC_TURN_USERNAME || '',
+        credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || ''
+      }] : [])
     ],
     iceCandidatePoolSize: 10,
+    // 'all' uses both STUN and TURN candidates
+    // Change to 'relay' to force TURN for testing
+    iceTransportPolicy: 'all',
   };
+  
+  /** ICE restart attempts per participant */
+  private iceRestartAttempts: Map<string, number> = new Map();
+  
+  /** Maximum ICE restart attempts before giving up */
+  private readonly MAX_ICE_RESTART_ATTEMPTS = 3;
 
   private currentUserId: string | null = null;
-  
-  // Track processed signals to prevent duplicates
-  private processedSignals: Set<string> = new Set();
 
+  /**
+   * BUG-004 FIX: Constructor sets up page unload handlers
+   * to ensure proper cleanup when user navigates away
+   */
   constructor() {
     super();
+    
+    // BUG-004: Force cleanup on page unload to prevent memory leaks
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', this.handlePageUnload);
+      window.addEventListener('pagehide', this.handlePageUnload);
+    }
   }
 
   /**
-   * Ensure currentUserId is set. If missing, try to recover from token storage.
+   * BUG-004 FIX: Handle page unload/hide events
+   * Arrow function to preserve 'this' context
    */
-  private ensureCurrentUserId(context: string): void {
-    if (!this.currentUserId) {
-      const token = getTokenData();
-      if (token?.user?.id) {
-        this.currentUserId = token.user.id;
-        console.log(`[${context}] currentUserId was missing; recovered from token →`, this.currentUserId);
-      } else {
-        console.log(`[${context}] currentUserId still missing and no token available`);
-      }
+  private handlePageUnload = (): void => {
+    console.log('🧹 [BUG-004] Page unload - forcing cleanup');
+    this.forceCleanup();
+  };
+
+  /**
+   * BUG-004 FIX: Force cleanup all resources
+   * 
+   * Called on page unload to ensure no leaked connections.
+   * Also useful for manual cleanup in error scenarios.
+   */
+  forceCleanup(): void {
+    console.log('🧹 [BUG-004] Force cleanup initiated');
+    
+    // Clear all cooldowns
+    this.callCooldowns.clear();
+    
+    // Clear all ICE restart attempts
+    this.iceRestartAttempts.clear();
+    
+    // End all participant connections (without setting cooldowns)
+    for (const userId of Array.from(this.state.participants.keys())) {
+      this.endProximityCallWithUser(userId, false);
     }
+    
+    // Stop local stream
+    if (this.state.localStream) {
+      this.state.localStream.getTracks().forEach(track => {
+        track.stop();
+      });
+      this.state.localStream = null;
+    }
+    
+    // Reset state
+    this.state.isActive = false;
+    this.state.callId = null;
+    this.state.participants.clear();
+    
+    // Remove page unload listeners
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', this.handlePageUnload);
+      window.removeEventListener('pagehide', this.handlePageUnload);
+    }
+    
+    // Remove all event listeners from this emitter
+    this.removeAllListeners();
+    
+    console.log('✅ [BUG-004] Force cleanup complete');
   }
 
   /**
@@ -89,78 +235,80 @@ class ProximityVideoCallManager extends EventEmitter {
   }): void {
     this.websocketService = ws;
     this.setupWebSocketListeners();
-    // Begin periodic heartbeat to keep server-side proximity fresh
-    this.startProximityHeartbeat();
   }
 
   /**
    * Initialize the proximity video call manager
    */
   async initialize(userId: string): Promise<void> {
-    console.log('[INITIALIZE] Starting initialization for user:', userId);
+    console.log('🎬 [INITIALIZE] Starting initialization for user:', userId);
     
     // Idempotency: avoid re-initializing if already initialized for same user
     if (this.currentUserId && this.currentUserId === userId && this.state.localStream) {
-      console.log('[INITIALIZE] Already initialized, skipping');
+      console.log('🎬 [INITIALIZE] Already initialized for this user, skipping');
       return; // Already initialized
     }
 
     this.currentUserId = userId;
-    console.log('[INITIALIZE] Set current user ID:', this.currentUserId);
+    console.log('🎬 [INITIALIZE] Set currentUserId:', this.currentUserId);
 
     // Initialize local media stream only if we don't have one
     if (!this.state.localStream) {
-      console.log('[INITIALIZE] No local stream, initializing...');
+      console.log('🎬 [INITIALIZE] No local stream, initializing...');
       try {
         await this.initializeLocalStream();
-        console.log('[INITIALIZE] Local stream initialized successfully');
+        console.log('✅ [INITIALIZE] Local stream initialized successfully');
       } catch (error) {
-        console.error('[INITIALIZE] Failed to initialize local stream:', error);
-        // Don't throw, allow proximity detection to work without media
+        console.error('❌ [INITIALIZE] Failed to initialize local stream:', error);
+        // Don't throw - let the system work without video initially
       }
     } else {
-      console.log('[INITIALIZE] Local stream already exists');
+      console.log('🎬 [INITIALIZE] Local stream already exists');
     }
 
+    console.log('🎬 [INITIALIZE] Final state:', {
+      hasLocalStream: !!this.state.localStream,
+      currentUserId: this.currentUserId
+    });
+
     this.emit('initialized');
-    console.log('[INITIALIZE] Initialization complete');
   }
 
   /**
    * Update user position and check for proximity changes
+   * 
+   * @param x - X position in PIXELS
+   * @param y - Y position in PIXELS
+   * @param z - Z position (optional, for future 3D support)
+   * 
+   * NOTE: Converts pixel coordinates to grid coordinates before
+   * sending to backend, as backend expects grid coordinates.
    */
   updatePosition(x: number, y: number, z: number = 0): void {
-    this.ensureCurrentUserId('UPDATE POSITION');
     const oldPosition = { ...this.state.localPosition };
     this.state.localPosition = { x, y, z };
     
-    // Convert pixel coordinates to grid coordinates for backend
-    // Use Math.floor to match the movement system and prevent rounding errors
-    const gridX = Math.floor(x / 20);
-    const gridY = Math.floor(y / 20);
+    // Convert pixel coordinates to grid coordinates using centralized utility
+    const gridPos = toGrid({ x, y });
     
-    console.log('[DEBUG] Position updated in video service:', {
+    console.log('📍 [DEBUG] Position updated in video service:', {
       oldPosition,
       newPosition: this.state.localPosition,
-      gridPosition: { x: gridX, y: gridY },
+      gridPosition: gridPos,
       currentUserId: this.currentUserId
     });
     
     // Send GRID coordinates to backend (not pixel coordinates!)
     if (this.websocketService) {
-      const outMsg = {
-        // backend expects x,y,z at top-level in GRID UNITS
-        x: gridX,
-        y: gridY,
-        z,
+      this.websocketService.emit('proximity-position-update', {
+        userId: this.currentUserId,
+        position: {
+          x: gridPos.gridX,  // Send grid coordinates
+          y: gridPos.gridY,  // Send grid coordinates
+          z: z
+        },
         isInVideoCall: this.state.isActive,
-      } as const;
-      console.log('[SIGNAL OUT] proximity-position-update →', outMsg);
-      this.websocketService.emit('proximity-position-update', outMsg);
-      // Ensure heartbeat is running
-      if (!this.proximityHeartbeat) {
-        this.startProximityHeartbeat();
-      }
+      });
     }
 
     // Check if we need to disconnect from users who are too far
@@ -169,43 +317,65 @@ class ProximityVideoCallManager extends EventEmitter {
 
   /**
    * Handle nearby users update from proximity system
+   * 
+   * Filters users based on Manhattan distance (grid units) and
+   * initiates/ends video calls as users enter/leave proximity range.
+   * 
+   * BUG-006 FIX: 
+   * - Added cooldown check before starting new calls
+   * - Updates participant positions for accurate distance tracking
+   * - Uses hysteresis (end at 3 tiles, start at 2 tiles)
+   * 
+   * @param nearbyUsers - Array of users with their positions
    */
   handleNearbyUsersUpdate(nearbyUsers: User[]): void {
-    const GRID_SIZE = 20; // Must match space page grid size
-    const PROXIMITY_DISTANCE = 2; // Must match space page proximity distance
+    // Convert local position to grid coordinates
+    const currentGridPos = toGrid({ x: this.state.localPosition.x, y: this.state.localPosition.y });
     
-    // Use the same Manhattan distance calculation as the space page
-    // Use Math.floor to match movement system
+    // Clean up expired cooldowns
+    const now = Date.now();
+    for (const [userId, expiry] of this.callCooldowns) {
+      if (now >= expiry) {
+        this.callCooldowns.delete(userId);
+        console.log(`🔓 [BUG-006] Cooldown expired for user ${userId}`);
+      }
+    }
+    
+    // BUG-006: Update positions of existing participants FIRST
+    // This ensures checkProximityDisconnections has accurate position data
+    for (const user of nearbyUsers) {
+      const existingParticipant = this.state.participants.get(user.id);
+      if (existingParticipant) {
+        // Update the participant's position (z is optional on User type)
+        existingParticipant.position = { x: user.x, y: user.y, z: 0 };
+      }
+    }
+    
+    // Filter users within proximity range using grid-based Manhattan distance
     const usersInRange = nearbyUsers.filter(user => {
-      const currentGridX = Math.floor(this.state.localPosition.x / GRID_SIZE);
-      const currentGridY = Math.floor(this.state.localPosition.y / GRID_SIZE);
-      const userGridX = Math.floor(user.x / GRID_SIZE);
-      const userGridY = Math.floor(user.y / GRID_SIZE);
-      
-      const manhattanDistance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
-      return manhattanDistance <= PROXIMITY_DISTANCE;
+      // User positions should already be in pixels, convert to grid
+      const userGridPos = toGrid({ x: user.x, y: user.y });
+      const distance = gridDistance(currentGridPos, userGridPos);
+      return distance <= PROXIMITY_DISTANCE_TILES;
     });
 
     // Debug logging for proximity detection
-    console.log('[DEBUG] Proximity detection in video service:', {
+    console.log('🎥 [DEBUG] Proximity detection in video service:', {
       localPosition: this.state.localPosition,
-      localGridPos: {
-        x: Math.floor(this.state.localPosition.x / GRID_SIZE),
-        y: Math.floor(this.state.localPosition.y / GRID_SIZE)
-      },
+      localGridPos: currentGridPos,
+      activeCooldowns: this.callCooldowns.size,
       nearbyUsers: nearbyUsers.map(user => {
-        const currentGridX = Math.round(this.state.localPosition.x / GRID_SIZE);
-        const currentGridY = Math.round(this.state.localPosition.y / GRID_SIZE);
-        const userGridX = Math.round(user.x / GRID_SIZE);
-        const userGridY = Math.round(user.y / GRID_SIZE);
-        const manhattanDistance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
+        const userGridPos = toGrid({ x: user.x, y: user.y });
+        const manhattanDistance = gridDistance(currentGridPos, userGridPos);
+        const hasCooldown = this.callCooldowns.has(user.id) && (this.callCooldowns.get(user.id) || 0) > now;
         
         return {
           username: user.username || `User_${user.id?.slice(0, 8)}`,
           pixelPos: { x: user.x, y: user.y },
-          gridPos: { x: userGridX, y: userGridY },
+          gridPos: userGridPos,
           manhattanDistance,
-          inRange: manhattanDistance <= PROXIMITY_DISTANCE
+          inRange: manhattanDistance <= PROXIMITY_DISTANCE_TILES,
+          hasCooldown
         };
       }),
       usersInRange: usersInRange.length,
@@ -213,48 +383,58 @@ class ProximityVideoCallManager extends EventEmitter {
       currentUserId: this.currentUserId
     });
 
-    // Start calls with new users in range (deterministic initiator rule to avoid glare)
+    // Start calls with new users in range (respecting cooldown)
     for (const user of usersInRange) {
       if (!this.state.participants.has(user.id) && user.id !== this.currentUserId) {
-        // Only the lexicographically smaller userId initiates
-        const myId = this.currentUserId || '';
-        const shouldInitiate = myId && user.id && myId < user.id;
-        if (!shouldInitiate) {
-          console.log(`Skipping initiate with ${user.username || user.id} (waiting to be answerer)`);
+        // BUG-006: Check cooldown before initiating call
+        const cooldownExpiry = this.callCooldowns.get(user.id);
+        if (cooldownExpiry && now < cooldownExpiry) {
+          const remainingMs = cooldownExpiry - now;
+          console.log(`⏳ [BUG-006] Skipping call with ${user.username || user.id} - cooldown active (${Math.ceil(remainingMs / 1000)}s remaining)`);
           continue;
         }
-        const currentGridX = Math.round(this.state.localPosition.x / GRID_SIZE);
-        const currentGridY = Math.round(this.state.localPosition.y / GRID_SIZE);
-        const userGridX = Math.round(user.x / GRID_SIZE);
-        const userGridY = Math.round(user.y / GRID_SIZE);
-        const manhattanDistance = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
         
-        console.log(`Starting proximity video call with ${user.username || user.id} (Manhattan distance: ${manhattanDistance} tiles)`);
+        const userGridPos = toGrid({ x: user.x, y: user.y });
+        const manhattanDistance = gridDistance(currentGridPos, userGridPos);
+        
+        console.log(`🚀 Starting proximity video call with ${user.username || user.id} (Manhattan distance: ${manhattanDistance} tiles)`);
         this.initiateProximityCall(user);
       }
     }
 
-    // End calls with users who left range
-    const currentParticipantIds = Array.from(this.state.participants.keys());
-    const usersInRangeIds = usersInRange.map(u => u.id);
+    // BUG-006: Don't immediately end calls here - let checkProximityDisconnections handle it
+    // with hysteresis and grace periods. Only track users that are now in "usersInRange"
+    // but the actual disconnection logic is in checkProximityDisconnections()
     
-    for (const participantId of currentParticipantIds) {
-      if (!usersInRangeIds.includes(participantId)) {
+    // However, we still need to handle users that have completely disconnected (not in nearbyUsers at all)
+    const nearbyUserIds = nearbyUsers.map(u => u.id);
+    for (const participantId of this.state.participants.keys()) {
+      if (!nearbyUserIds.includes(participantId)) {
         const participant = this.state.participants.get(participantId);
-        console.log(`Ending proximity video call with ${participant?.username || participantId} (moved out of range)`);
+        console.log(`🚫 [BUG-006] ${participant?.username || participantId} no longer in nearby users list - ending call immediately`);
         this.endProximityCallWithUser(participantId);
       }
-    }
-
-    // If no one is in range and no participants left, end the call UI
-    if (this.state.participants.size === 0 && usersInRange.length === 0 && this.state.isActive) {
-      console.log('No users in range and no participants remaining → ending call UI');
-      this.endCall();
     }
   }
 
   /**
    * Initialize local media stream (video and audio)
+   */
+  /**
+   * Initialize local media stream (video and audio)
+   * 
+   * BUG-005/BUG-028 FIX: Enhanced audio constraints for better echo cancellation
+   * and audio-video sync. Uses advanced WebRTC constraints where supported.
+   * 
+   * Audio constraints include:
+   * - echoCancellation: Removes speaker audio picked up by microphone
+   * - noiseSuppression: Reduces background noise
+   * - autoGainControl: Normalizes volume levels
+   * - channelCount: 1 for reduced bandwidth and better echo cancellation
+   * - sampleRate: 48000 for optimal WebRTC performance
+   * 
+   * @see docs/bugs/video-calling/BUG-005-audio-video-sync.md
+   * @see docs/bugs/video-calling/BUG-028-audio-echo.md
    */
   private async initializeLocalStream(): Promise<void> {
     // Guard against duplicate calls creating multiple tracks
@@ -270,93 +450,88 @@ class ProximityVideoCallManager extends EventEmitter {
           frameRate: { ideal: 30 }
         },
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+          // Core echo cancellation (BUG-028)
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          // Mono audio for better echo cancellation and reduced bandwidth
+          channelCount: { ideal: 1 },
+          // Standard WebRTC sample rate
+          sampleRate: { ideal: 48000 },
+          // Additional advanced constraints (Chrome-specific, gracefully ignored by others)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...(typeof navigator !== 'undefined' && 'chrome' in window ? {
+            googEchoCancellation: true,
+            googAutoGainControl: true,
+            googNoiseSuppression: true,
+            googHighpassFilter: true,
+            googAudioMirroring: false
+          } : {}) as Record<string, boolean>
         }
       });
+      
+      // BUG-005: Log audio track settings for debugging
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        const settings = audioTrack.getSettings();
+        console.log('🎤 [BUG-005/028] Audio track settings:', {
+          echoCancellation: settings.echoCancellation,
+          noiseSuppression: settings.noiseSuppression,
+          autoGainControl: settings.autoGainControl,
+          channelCount: settings.channelCount,
+          sampleRate: settings.sampleRate
+        });
+      }
+      
       this.state.localStream = stream;
       this.emit('local-stream-ready', this.state.localStream);
     } catch (error) {
       console.error('Failed to initialize local stream:', error);
-      
-      // User-friendly error messages
-      if (error instanceof DOMException) {
-        if (error.name === 'NotAllowedError') {
-          alert('🎥 Camera/Microphone Permission Denied\n\nPlease allow access in your browser settings and refresh the page.');
-          this.emit('error', 'Camera/microphone permission denied');
-        } else if (error.name === 'NotFoundError') {
-          alert('🎥 No Camera or Microphone Found\n\nPlease connect a camera/microphone and try again.');
-          this.emit('error', 'No camera/microphone found');
-        } else if (error.name === 'NotReadableError') {
-          alert('🎥 Camera/Microphone is Busy\n\nPlease close other applications using your camera/microphone.');
-          this.emit('error', 'Camera/microphone is busy');
-        } else {
-          this.emit('error', 'Failed to access camera/microphone');
-        }
-      }
-      
+      this.emit('error', 'Failed to access camera/microphone');
       throw error;
     }
   }
 
   /**
    * Initiate proximity call with a user
+   * 
+   * BUG-006 FIX: Initializes new grace period fields for proper call ending
    */
   private async initiateProximityCall(user: User): Promise<void> {
-    // Deterministic initiator rule: only the lower userId starts offers
-    const myId = this.currentUserId || '';
-    if (!(myId && user.id && myId < user.id)) {
-      console.log('[INITIATE CALL] Not initiator per lexicographic rule; waiting for offer');
-      return;
-    }
-    // Guard: only initiate if truly in range (Manhattan ≤ 2 tiles) as last check
-    const GRID = 20;
-    const currentGridX = Math.floor(this.state.localPosition.x / GRID);
-    const currentGridY = Math.floor(this.state.localPosition.y / GRID);
-    const userGridX = Math.floor(user.x / GRID);
-    const userGridY = Math.floor(user.y / GRID);
-    const manhattan = Math.abs(currentGridX - userGridX) + Math.abs(currentGridY - userGridY);
-    if (manhattan > 2) {
-      console.log('[INITIATE CALL] User not in video range anymore, aborting');
-      return;
-    }
-    console.log('[INITIATE CALL] Starting initiate process for user:', user.username);
-    
-    this.ensureCurrentUserId('INITIATE CALL');
+    console.log('📞 [INITIATE CALL] Checking prerequisites:', {
+      hasLocalStream: !!this.state.localStream,
+      currentUserId: this.currentUserId,
+      targetUser: { id: user.id, username: user.username }
+    });
+
     if (!this.currentUserId) {
-      console.log('[INITIATE CALL] Missing current user ID (after ensure)');
+      console.error('❌ [INITIATE CALL] Cannot initiate call - no currentUserId set');
       return;
     }
 
-    // Initialize local stream if we don't have one yet
+    // Try to initialize local stream if we don't have one
     if (!this.state.localStream) {
-      console.log('[INITIATE CALL] No local stream, trying to initialize...');
+      console.log('📹 [INITIATE CALL] No local stream, attempting to initialize...');
       try {
         await this.initializeLocalStream();
-        console.log('[INITIATE CALL] Local stream initialized');
       } catch (error) {
-        console.error('[INITIATE CALL] Failed to get local stream:', error);
-        // Continue anyway to show the UI (audio-only call)
+        console.error('❌ [INITIATE CALL] Failed to initialize local stream:', error);
+        return;
       }
     }
 
+    if (!this.state.localStream) {
+      console.error('❌ [INITIATE CALL] Still no local stream after initialization attempt');
+      return;
+    }
+
+    console.log('✅ [INITIATE CALL] Prerequisites met, proceeding with call');
     const callId = this.generateCallId();
     
     if (!this.state.isActive) {
-      console.log('[INITIATE CALL] Setting call as active, emitting proximity-call-started');
       this.state.isActive = true;
       this.state.callId = callId;
       this.emit('proximity-call-started', { callId });
-      console.log('[INITIATE CALL] Call state is now active:', this.state.isActive);
-    } else {
-      console.log('[INITIATE CALL] Call already active, adding participant to existing call');
-    }
-
-    // Check if this user is already a participant
-    if (this.state.participants.has(user.id)) {
-      console.log('[INITIATE CALL] User already in call:', user.username);
-      return;
     }
 
     // Create peer connection for this user
@@ -372,15 +547,16 @@ class ProximityVideoCallManager extends EventEmitter {
       isAudioEnabled: !this.state.isMuted,
       isVideoEnabled: !this.state.isCameraOff,
       isScreenSharing: false,
-      connectionState: 'new'
+      connectionState: 'new',
+      // BUG-006: Initialize grace period fields
+      disconnectGraceTimer: null,
+      isLeavingProximity: false
     };
 
-    // Add local stream to peer connection (if available)
-    if (this.state.localStream) {
-      this.state.localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, this.state.localStream!);
-      });
-    }
+    // Add local stream to peer connection
+    this.state.localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, this.state.localStream!);
+    });
 
     // Set up peer connection event handlers
     this.setupPeerConnectionHandlers(participant);
@@ -395,15 +571,13 @@ class ProximityVideoCallManager extends EventEmitter {
 
       // Send offer through WebSocket
       if (this.websocketService) {
-        const outMsg = {
-          type: 'offer' as const,
-          callId: this.state.callId!,
-          fromUserId: this.currentUserId!,
-          targetUserId: user.id, // backend expects targetUserId
-          offer
-        };
-        console.log('[SIGNAL OUT] offer →', outMsg);
-        this.websocketService.emit('proximity-video-call-signal', outMsg);
+        this.websocketService.emit('proximity-video-call-signal', {
+          type: 'offer',
+          callId: this.state.callId,
+          fromUserId: this.currentUserId,
+          targetUserId: user.id,
+          offer: offer
+        });
       }
 
       this.emit('participant-connecting', { userId: user.id, username: user.username });
@@ -420,42 +594,14 @@ class ProximityVideoCallManager extends EventEmitter {
     type: 'offer' | 'answer' | 'ice-candidate';
     callId: string;
     fromUserId: string;
-    toUserId: string; // note: incoming from server is for US; may also carry targetUserId from original sender
+    targetUserId: string;
     offer?: RTCSessionDescriptionInit;
     answer?: RTCSessionDescriptionInit;
     candidate?: RTCIceCandidate;
   }): Promise<void> {
     const { type, fromUserId, offer, answer, candidate } = data;
 
-    console.log('[SIGNAL IN] proximity-video-call-signal →', data);
-    
-    // Generate unique signal ID for duplicate detection (answer/offer only)
-    if (type === 'answer' || type === 'offer') {
-      // Use SDP content hash for better deduplication
-      const sdpContent = type === 'answer' ? answer?.sdp : offer?.sdp;
-      const signalId = `${type}-${fromUserId}-${sdpContent?.substring(0, 50)}`;
-      
-      // Short-lived deduplication: keep last 100 signals
-      if (this.processedSignals.has(signalId)) {
-        console.log('[SIGNAL DEDUP] Ignoring duplicate', type, 'from', fromUserId);
-        return;
-      }
-      this.processedSignals.add(signalId);
-      if (this.processedSignals.size > 100) {
-        const firstKey = this.processedSignals.values().next().value;
-        if (firstKey) {
-          this.processedSignals.delete(firstKey);
-        }
-      }
-    }
-
     let participant = this.state.participants.get(fromUserId);
-
-    // Drop duplicate offers without creating infinite loops
-    if (!participant && type !== 'offer') {
-      console.log('[SIGNAL IN] Non-offer signaling from unknown participant, ignoring');
-      return;
-    }
 
     // If we receive an offer from a new user, create a participant
     if (!participant && type === 'offer') {
@@ -477,7 +623,10 @@ class ProximityVideoCallManager extends EventEmitter {
         isAudioEnabled: !this.state.isMuted,
         isVideoEnabled: !this.state.isCameraOff,
         isScreenSharing: false,
-        connectionState: 'new'
+        connectionState: 'new',
+        // BUG-006: Initialize grace period fields
+        disconnectGraceTimer: null,
+        isLeavingProximity: false
       };
 
       // Add local stream
@@ -496,72 +645,37 @@ class ProximityVideoCallManager extends EventEmitter {
     const { peerConnection } = participant;
 
     try {
-      try {
-        switch (type) {
-          case 'offer':
+      switch (type) {
+        case 'offer':
           if (offer && peerConnection) {
-            console.log('[SIGNAL APPLY] Offer from', fromUserId, '| signalingState =', peerConnection.signalingState);
-            // Perfect negotiation style: if we already have a local offer, roll back before applying remote
-            if (peerConnection.signalingState === 'have-local-offer') {
-              console.log('[NEGOTIATION] Rolling back local offer before applying remote offer');
-              const rollback: RTCSessionDescriptionInit = { type: 'rollback' as RTCSdpType };
-              await peerConnection.setLocalDescription(rollback);
-            } else if (peerConnection.signalingState !== 'stable') {
-              console.log('[NEGOTIATION] Not stable and no local offer; ignoring offer to avoid glare');
-              return;
-            }
             await peerConnection.setRemoteDescription(offer);
-            console.log('[NEGOTIATION] After setRemoteDescription(offer), state:', peerConnection.signalingState);
-            
-            const answerDesc = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answerDesc);
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
 
             // Send answer back
             if (this.websocketService) {
-              const outMsg = {
-                type: 'answer' as const,
+              this.websocketService.emit('proximity-video-call-signal', {
+                type: 'answer',
                 callId: data.callId,
-                fromUserId: this.currentUserId!,
-                targetUserId: fromUserId, // backend expects targetUserId
-                answer: answerDesc
-              };
-              console.log('[SIGNAL OUT] answer →', outMsg);
-              this.websocketService.emit('proximity-video-call-signal', outMsg);
+                fromUserId: this.currentUserId,
+                targetUserId: fromUserId,
+                answer: answer
+              });
             }
           }
           break;
 
         case 'answer':
           if (answer && peerConnection) {
-            console.log('[SIGNAL APPLY] Answer from', fromUserId, '| signalingState =', peerConnection.signalingState);
-            
-            // Only valid if we are in have-local-offer (waiting for answer)
-            if (peerConnection.signalingState !== 'have-local-offer') {
-              console.log('[NEGOTIATION] Ignoring answer: not in have-local-offer state (current:', peerConnection.signalingState + ')');
-              return;
-            }
-            
-            // Additional check: ensure we don't have a remote description already
-            if (peerConnection.remoteDescription) {
-              console.log('[NEGOTIATION] Ignoring duplicate answer: remote description already set');
-              return;
-            }
-            
             await peerConnection.setRemoteDescription(answer);
-            console.log('[SIGNAL APPLIED] Answer applied successfully, new state:', peerConnection.signalingState);
           }
           break;
 
         case 'ice-candidate':
           if (candidate && peerConnection) {
-            console.log('[SIGNAL APPLY] Adding ICE candidate from', fromUserId);
             await peerConnection.addIceCandidate(candidate);
           }
           break;
-        }
-      } catch (innerError) {
-        console.error('[NEGOTIATION ERROR] Failed to process', type, 'from', fromUserId, ':', innerError);
-        // Don't remove participant on transient errors, just log
       }
     } catch (error) {
       console.error('Error handling signaling:', error);
@@ -576,31 +690,63 @@ class ProximityVideoCallManager extends EventEmitter {
     const { peerConnection, userId } = participant;
 
     if (!peerConnection) {
-      console.error('Cannot setup handlers: peerConnection is null');
+      console.error('❌ Cannot setup handlers: peerConnection is null');
       return;
     }
 
-    // Handle remote stream
+    /**
+     * Handle remote stream
+     * 
+     * BUG-005 FIX: Use the provided stream directly from event.streams[0]
+     * instead of creating a new MediaStream. This ensures audio and video
+     * tracks stay synchronized as the browser manages them together.
+     * 
+     * The browser's RTP timestamp synchronization works best when tracks
+     * are kept in their original stream.
+     */
     peerConnection.ontrack = (event) => {
-      participant.remoteStream = event.streams[0];
-      this.emit('participant-stream', {
-        userId,
-        stream: event.streams[0]
-      });
+      // BUG-005: Use the stream directly from WebRTC for proper A/V sync
+      const [remoteStream] = event.streams;
+      
+      if (remoteStream) {
+        participant.remoteStream = remoteStream;
+        
+        // Log track info for debugging
+        console.log(`📹 [BUG-005] Remote stream received for ${userId}:`, {
+          videoTracks: remoteStream.getVideoTracks().length,
+          audioTracks: remoteStream.getAudioTracks().length,
+          streamId: remoteStream.id
+        });
+        
+        this.emit('participant-stream', {
+          userId,
+          stream: remoteStream
+        });
+      } else {
+        // Fallback: Create stream from track (less optimal for sync)
+        console.warn(`⚠️ [BUG-005] No stream in event.streams, using track directly`);
+        if (!participant.remoteStream) {
+          participant.remoteStream = new MediaStream();
+        }
+        participant.remoteStream.addTrack(event.track);
+        
+        this.emit('participant-stream', {
+          userId,
+          stream: participant.remoteStream
+        });
+      }
     };
 
     // Handle ICE candidates
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && this.state.callId && this.websocketService) {
-        const outMsg = {
-          type: 'ice-candidate' as const,
+        this.websocketService.emit('proximity-video-call-signal', {
+          type: 'ice-candidate',
           callId: this.state.callId,
-          fromUserId: this.currentUserId!,
-          targetUserId: userId, // backend expects targetUserId
+          fromUserId: this.currentUserId,
+          targetUserId: userId,
           candidate: event.candidate
-        };
-        console.log('[SIGNAL OUT] ice-candidate →', outMsg);
-        this.websocketService.emit('proximity-video-call-signal', outMsg);
+        });
       }
     };
 
@@ -621,9 +767,54 @@ class ProximityVideoCallManager extends EventEmitter {
       }
     };
 
-    // Handle ICE connection state
+    /**
+     * Handle ICE connection state changes (BUG-003 fix)
+     * 
+     * Implements ICE restart on failure to recover from transient network issues.
+     * Tracks restart attempts to prevent infinite restart loops.
+     */
     peerConnection.oniceconnectionstatechange = () => {
-      console.log(`ICE connection state for ${userId}:`, peerConnection.iceConnectionState);
+      const state = peerConnection.iceConnectionState;
+      console.log(`🧊 ICE connection state for ${userId}:`, state);
+      
+      if (state === 'failed') {
+        // Check if we can attempt a restart
+        const restartCount = this.iceRestartAttempts.get(userId) || 0;
+        
+        if (restartCount < this.MAX_ICE_RESTART_ATTEMPTS) {
+          console.log(`🔄 ICE connection failed, attempting restart (${restartCount + 1}/${this.MAX_ICE_RESTART_ATTEMPTS})...`);
+          this.iceRestartAttempts.set(userId, restartCount + 1);
+          
+          // Attempt ICE restart
+          peerConnection.restartIce();
+          this.sendICERestartOffer(participant);
+        } else {
+          console.error(`❌ ICE connection failed after ${this.MAX_ICE_RESTART_ATTEMPTS} restart attempts, giving up`);
+          this.iceRestartAttempts.delete(userId);
+          this.removeParticipant(userId);
+        }
+      } else if (state === 'disconnected') {
+        // Connection may recover on its own, wait before restarting
+        console.log(`⚠️ ICE connection disconnected for ${userId}, waiting 5s before restart...`);
+        
+        setTimeout(() => {
+          // Check if still disconnected
+          if (peerConnection.iceConnectionState === 'disconnected') {
+            const restartCount = this.iceRestartAttempts.get(userId) || 0;
+            
+            if (restartCount < this.MAX_ICE_RESTART_ATTEMPTS) {
+              console.log(`🔄 Connection still disconnected, restarting ICE...`);
+              this.iceRestartAttempts.set(userId, restartCount + 1);
+              peerConnection.restartIce();
+              this.sendICERestartOffer(participant);
+            }
+          }
+        }, 5000);
+      } else if (state === 'connected' || state === 'completed') {
+        // Connection recovered, reset restart counter
+        this.iceRestartAttempts.delete(userId);
+        console.log(`✅ ICE connection established for ${userId}`);
+      }
     };
 
     // Additional negotiation & state diagnostics
@@ -639,26 +830,138 @@ class ProximityVideoCallManager extends EventEmitter {
       console.log(`[ICEGatheringState] ${userId}:`, peerConnection.iceGatheringState);
     };
   }
+  
+  /**
+   * Send ICE restart offer (BUG-003 fix)
+   * 
+   * Creates and sends a new offer with iceRestart flag set to true.
+   * This triggers ICE candidate re-gathering and connection re-establishment.
+   */
+  private async sendICERestartOffer(participant: ProximityCallParticipant): Promise<void> {
+    const { peerConnection, userId } = participant;
+    
+    if (!peerConnection) {
+      console.warn('⚠️ Cannot send ICE restart - no peer connection');
+      return;
+    }
+    
+    try {
+      const offer = await peerConnection.createOffer({ iceRestart: true });
+      await peerConnection.setLocalDescription(offer);
+      
+      if (this.websocketService) {
+        this.websocketService.emit('proximity-video-call-signal', {
+          type: 'offer',
+          callId: this.state.callId,
+          fromUserId: this.currentUserId,
+          targetUserId: userId,
+          offer: offer
+        });
+      }
+      
+      console.log('🔄 ICE restart offer sent to', userId);
+    } catch (error) {
+      console.error('❌ ICE restart failed:', error);
+    }
+  }
 
   /**
    * End proximity call with a specific user
+   * 
+   * BUG-004 FIX: Comprehensive cleanup to prevent memory leaks
+   * BUG-006 FIX: Clears grace timer, sets cooldown
+   * 
+   * Cleanup steps:
+   * 1. Clear grace timer (BUG-006)
+   * 2. Remove all event listeners from peer connection (BUG-004)
+   * 3. Remove all tracks from senders (BUG-004)
+   * 4. Close peer connection (BUG-004)
+   * 5. Stop and remove remote stream tracks (BUG-004)
+   * 6. Null out references for GC (BUG-004)
+   * 7. Set cooldown (BUG-006)
+   * 
+   * @param userId - User ID to disconnect from
+   * @param setCooldown - Whether to set a cooldown period (default: true)
+   * 
+   * @see docs/bugs/video-calling/BUG-004-peer-connection-leak.md
    */
-  private endProximityCallWithUser(userId: string): void {
+  private endProximityCallWithUser(userId: string, setCooldown: boolean = true): void {
     const participant = this.state.participants.get(userId);
     if (!participant) return;
 
-    // Close peer connection
-    if (participant.peerConnection) {
-      participant.peerConnection.close();
+    console.log(`🧹 [BUG-004] Starting cleanup for ${participant.username || userId}`);
+
+    const { peerConnection, remoteStream } = participant;
+
+    // BUG-006: Clear any pending grace timer
+    if (participant.disconnectGraceTimer) {
+      clearTimeout(participant.disconnectGraceTimer);
+      participant.disconnectGraceTimer = null;
     }
 
-    // Stop remote stream
-    if (participant.remoteStream) {
-      participant.remoteStream.getTracks().forEach(track => track.stop());
+    // BUG-004: Remove all event listeners BEFORE closing to prevent memory leaks
+    if (peerConnection) {
+      // Remove all event handlers
+      peerConnection.ontrack = null;
+      peerConnection.onicecandidate = null;
+      peerConnection.onconnectionstatechange = null;
+      peerConnection.oniceconnectionstatechange = null;
+      peerConnection.onnegotiationneeded = null;
+      peerConnection.onsignalingstatechange = null;
+      peerConnection.onicegatheringstatechange = null;
+      peerConnection.ondatachannel = null;
+      
+      // BUG-004: Remove all tracks from senders to break references
+      try {
+        peerConnection.getSenders().forEach(sender => {
+          try {
+            peerConnection.removeTrack(sender);
+          } catch (e) {
+            // Ignore - track may already be removed
+          }
+        });
+      } catch (e) {
+        // Ignore - connection may be in invalid state
+      }
+      
+      // Close the connection
+      peerConnection.close();
+      console.log(`🔌 [BUG-004] Peer connection closed for ${userId}`);
     }
 
+    // BUG-004: Stop ALL remote stream tracks and remove from stream
+    if (remoteStream) {
+      remoteStream.getTracks().forEach(track => {
+        track.stop();
+        try {
+          remoteStream.removeTrack(track);
+        } catch (e) {
+          // Ignore - track may already be removed
+        }
+      });
+      console.log(`📹 [BUG-004] Remote stream tracks stopped for ${userId}`);
+    }
+
+    // BUG-004: Clear ICE restart attempts for this user
+    this.iceRestartAttempts.delete(userId);
+
+    // BUG-004: Null out references to allow garbage collection
+    participant.peerConnection = null;
+    participant.remoteStream = null;
+    participant.localStream = null;
+
+    // Remove from participants map
     this.state.participants.delete(userId);
+    
+    // BUG-006: Set cooldown to prevent rapid reconnection
+    if (setCooldown) {
+      this.callCooldowns.set(userId, Date.now() + COOLDOWN_PERIOD_MS);
+      console.log(`🕐 [BUG-006] Set cooldown for ${participant.username || userId}`);
+    }
+    
     this.emit('participant-disconnected', { userId, username: participant.username });
+
+    console.log(`✅ [BUG-004] Cleanup complete for ${userId}. Remaining participants: ${this.state.participants.size}`);
 
     // If no participants left, end the call
     if (this.state.participants.size === 0 && this.state.isActive) {
@@ -667,20 +970,82 @@ class ProximityVideoCallManager extends EventEmitter {
   }
 
   /**
-   * Check for proximity disconnections
+   * Check for proximity disconnections using grid-based distance
+   * 
+   * BUG-006 FIX: Complete rewrite with proper distance calculation
+   * 
+   * This method implements hysteresis and grace periods:
+   * - Call starts when distance <= 2 tiles
+   * - Call ends when distance > 3 tiles (hysteresis buffer)
+   * - Grace period: Wait 2 seconds before actually ending
+   * - If user returns within grace period, call continues
+   * 
+   * Uses Manhattan distance (grid units) for consistency with
+   * the proximity detection system.
+   * 
+   * @see docs/bugs/video-calling/BUG-006-call-not-ending.md
    */
   private checkProximityDisconnections(): void {
-    const participantsToRemove: string[] = [];
+    // Convert local position to grid coordinates
+    const localGridPos = toGrid({ x: this.state.localPosition.x, y: this.state.localPosition.y });
 
     for (const [userId, participant] of this.state.participants) {
-      const distance = this.calculateDistance(this.state.localPosition, participant.position);
-      if (distance > this.state.proximityRange) {
-        participantsToRemove.push(userId);
-      }
-    }
+      // Convert participant position to grid coordinates
+      const participantGridPos = toGrid({ x: participant.position.x, y: participant.position.y });
+      
+      // Calculate Manhattan distance in grid units (tiles)
+      const distance = gridDistance(localGridPos, participantGridPos);
 
-    for (const userId of participantsToRemove) {
-      this.endProximityCallWithUser(userId);
+      // Check if participant is beyond the END threshold (with hysteresis)
+      if (distance > CALL_END_DISTANCE_TILES) {
+        // User is too far - start grace period if not already started
+        if (!participant.isLeavingProximity && !participant.disconnectGraceTimer) {
+          console.log(`⚠️ [BUG-006] ${participant.username || userId} is leaving proximity (${distance} tiles > ${CALL_END_DISTANCE_TILES}), starting grace period`);
+          
+          participant.isLeavingProximity = true;
+          participant.disconnectGraceTimer = setTimeout(() => {
+            // Re-check distance after grace period
+            const currentLocalGridPos = toGrid({ x: this.state.localPosition.x, y: this.state.localPosition.y });
+            const currentParticipant = this.state.participants.get(userId);
+            
+            if (!currentParticipant) return; // Already disconnected
+            
+            const currentParticipantGridPos = toGrid({ x: currentParticipant.position.x, y: currentParticipant.position.y });
+            const currentDistance = gridDistance(currentLocalGridPos, currentParticipantGridPos);
+            
+            if (currentDistance > CALL_END_DISTANCE_TILES) {
+              console.log(`🛑 [BUG-006] Grace period expired for ${currentParticipant.username || userId} (${currentDistance} tiles), ending call`);
+              this.endProximityCallWithUser(userId);
+            } else {
+              console.log(`✅ [BUG-006] ${currentParticipant.username || userId} returned to proximity (${currentDistance} tiles), cancelling disconnect`);
+              currentParticipant.isLeavingProximity = false;
+              currentParticipant.disconnectGraceTimer = null;
+            }
+          }, GRACE_PERIOD_MS);
+          
+          // Notify UI that user is leaving
+          this.emit('participant-leaving', { 
+            userId, 
+            username: participant.username,
+            gracePeriodMs: GRACE_PERIOD_MS 
+          });
+        }
+      } else if (participant.isLeavingProximity) {
+        // User came back within range - cancel the grace period
+        console.log(`↩️ [BUG-006] ${participant.username || userId} returned to proximity (${distance} tiles), cancelling disconnect`);
+        
+        if (participant.disconnectGraceTimer) {
+          clearTimeout(participant.disconnectGraceTimer);
+          participant.disconnectGraceTimer = null;
+        }
+        participant.isLeavingProximity = false;
+        
+        // Notify UI that user is back
+        this.emit('participant-returned', { 
+          userId, 
+          username: participant.username 
+        });
+      }
     }
   }
 
@@ -797,9 +1162,8 @@ class ProximityVideoCallManager extends EventEmitter {
     // Store callId before resetting state
     const endingCallId = this.state.callId;
 
-    // End all participant connections and inform peers
-    const participantIds = Array.from(this.state.participants.keys());
-    for (const userId of participantIds) {
+    // End all participant connections
+    for (const userId of this.state.participants.keys()) {
       this.endProximityCallWithUser(userId);
     }
 
@@ -817,16 +1181,12 @@ class ProximityVideoCallManager extends EventEmitter {
     this.state.isCameraOff = false;
     this.state.isScreenSharing = false;
 
-    // Notify server with the original callId for each peer so backend can relay
+    // Notify server with the original callId
     if (this.websocketService && endingCallId) {
-      for (const targetUserId of participantIds) {
-        const outMsg = {
-          targetUserId,
-          reason: 'user_ended',
-        };
-        console.log('📡 [SIGNAL OUT] proximity-video-call-ended →', outMsg);
-        this.websocketService.emit('proximity-video-call-ended', outMsg);
-      }
+      this.websocketService.emit('proximity-video-call-ended', {
+        userId: this.currentUserId,
+        callId: endingCallId
+      });
     }
 
     this.emit('call-ended');
@@ -834,19 +1194,61 @@ class ProximityVideoCallManager extends EventEmitter {
 
   /**
    * Remove a participant
+   * 
+   * BUG-004 FIX: Full cleanup with event listener removal
+   * BUG-006 FIX: Clear grace timer when removing participant
+   * 
+   * This is a simpler version of endProximityCallWithUser without cooldowns.
+   * Used for connection errors and signal handling failures.
    */
   private removeParticipant(userId: string): void {
     const participant = this.state.participants.get(userId);
-    if (participant) {
-      if (participant.peerConnection) {
-        participant.peerConnection.close();
-      }
-      if (participant.remoteStream) {
-        participant.remoteStream.getTracks().forEach(track => track.stop());
-      }
-      this.state.participants.delete(userId);
-      this.emit('participant-left', { userId, username: participant.username });
+    if (!participant) return;
+
+    console.log(`🧹 [BUG-004] removeParticipant: cleaning up ${userId}`);
+
+    // BUG-006: Clear any pending grace timer
+    if (participant.disconnectGraceTimer) {
+      clearTimeout(participant.disconnectGraceTimer);
+      participant.disconnectGraceTimer = null;
     }
+    
+    // BUG-004: Remove event listeners before closing
+    if (participant.peerConnection) {
+      participant.peerConnection.ontrack = null;
+      participant.peerConnection.onicecandidate = null;
+      participant.peerConnection.onconnectionstatechange = null;
+      participant.peerConnection.oniceconnectionstatechange = null;
+      participant.peerConnection.onnegotiationneeded = null;
+      participant.peerConnection.onsignalingstatechange = null;
+      participant.peerConnection.onicegatheringstatechange = null;
+      participant.peerConnection.ondatachannel = null;
+      
+      participant.peerConnection.close();
+    }
+    
+    // BUG-004: Stop and remove all tracks
+    if (participant.remoteStream) {
+      participant.remoteStream.getTracks().forEach(track => {
+        track.stop();
+        try {
+          participant.remoteStream?.removeTrack(track);
+        } catch (e) {
+          // Ignore
+        }
+      });
+    }
+    
+    // BUG-004: Clear ICE restart attempts
+    this.iceRestartAttempts.delete(userId);
+    
+    // BUG-004: Null references for GC
+    participant.peerConnection = null;
+    participant.remoteStream = null;
+    participant.localStream = null;
+    
+    this.state.participants.delete(userId);
+    this.emit('participant-left', { userId, username: participant.username });
   }
 
   /**
@@ -859,7 +1261,6 @@ class ProximityVideoCallManager extends EventEmitter {
     }
 
     this.websocketService.on('proximity-video-call-signal', (data: unknown) => {
-      console.log('[WS EVENT] proximity-video-call-signal (raw) →', data);
       // Perform a runtime shape check
       const msg = data as {
         type?: 'offer' | 'answer' | 'ice-candidate';
@@ -875,17 +1276,15 @@ class ProximityVideoCallManager extends EventEmitter {
         console.warn('Ignoring malformed proximity-video-call-signal', data);
         return;
       }
-      // Guard: ignore messages clearly not intended for us if target fields are present
-      if ((msg.toUserId && this.currentUserId && msg.toUserId !== this.currentUserId) ||
-          (msg.targetUserId && this.currentUserId && msg.targetUserId !== this.currentUserId)) {
-        console.log('[WS EVENT] Signal not for current user, ignoring');
-        return;
-      }
-      // Cast to required format after validation
-      this.handleProximityCallSignal(msg as Required<Pick<typeof msg,'type'|'callId'|'fromUserId'|'toUserId'>> & {
-        offer?: RTCSessionDescriptionInit;
-        answer?: RTCSessionDescriptionInit;
-        candidate?: RTCIceCandidate;
+      // Cast to required format after validation, mapping toUserId -> targetUserId
+      this.handleProximityCallSignal({
+        type: msg.type,
+        callId: msg.callId || '',
+        fromUserId: msg.fromUserId,
+        targetUserId: msg.targetUserId || msg.toUserId || '',
+        offer: msg.offer,
+        answer: msg.answer,
+        candidate: msg.candidate
       });
     });
 
@@ -899,43 +1298,7 @@ class ProximityVideoCallManager extends EventEmitter {
     });
 
     this.websocketService.on('disconnect', () => {
-      console.log('[WS EVENT] disconnect → ending call and clearing heartbeat');
       this.endCall();
-      if (this.proximityHeartbeat) {
-        clearInterval(this.proximityHeartbeat);
-        this.proximityHeartbeat = null;
-      }
-    });
-
-    // Keep participants' positions updated from server broadcasts (grid → pixel)
-    this.websocketService.on('proximity-user-position', (data: unknown) => {
-      const payload = data as { userId?: string; x?: number; y?: number; z?: number };
-      if (!payload?.userId || typeof payload.x !== 'number' || typeof payload.y !== 'number') {
-        console.warn('Malformed proximity-user-position payload', data);
-        return;
-      }
-      const participant = this.state.participants.get(payload.userId);
-      if (participant) {
-        // Convert GRID units back to pixels for local distance calc
-        const newPos = { x: payload.x * 20, y: payload.y * 20, z: payload.z || 0 };
-        participant.position = newPos;
-        // Debug
-        console.log(`[WS EVENT] Updated participant ${payload.userId} position →`, newPos);
-      }
-    });
-
-    // Handle inbound end notifications from peers
-    this.websocketService.on('proximity-video-call-ended', (data: unknown) => {
-      const payload = data as { fromUserId?: string; reason?: string };
-      if (!payload?.fromUserId) {
-        console.warn('Malformed proximity-video-call-ended payload', data);
-        return;
-      }
-      console.log('[WS EVENT] proximity-video-call-ended from', payload.fromUserId, 'reason:', payload.reason);
-      this.endProximityCallWithUser(payload.fromUserId);
-      if (this.state.participants.size === 0 && this.state.isActive) {
-        this.endCall();
-      }
     });
   }
 
@@ -991,33 +1354,6 @@ class ProximityVideoCallManager extends EventEmitter {
     this.endCall();
     this.removeAllListeners();
     this.currentUserId = null;
-    if (this.proximityHeartbeat) {
-      clearInterval(this.proximityHeartbeat);
-      this.proximityHeartbeat = null;
-    }
-  }
-
-  /**
-   * Start/refresh proximity heartbeat (1s) to keep proximity state fresh on server
-   */
-  private startProximityHeartbeat(): void {
-    if (!this.websocketService) return;
-    if (this.proximityHeartbeat) {
-      clearInterval(this.proximityHeartbeat);
-      this.proximityHeartbeat = null;
-    }
-    this.proximityHeartbeat = setInterval(() => {
-      if (!this.websocketService) return;
-      const GRID_SIZE = 20;
-      const gridX = Math.floor(this.state.localPosition.x / GRID_SIZE);
-      const gridY = Math.floor(this.state.localPosition.y / GRID_SIZE);
-      const outMsg = {
-        position: { x: gridX, y: gridY, z: this.state.localPosition.z || 0 },
-        timestamp: Date.now(),
-      };
-      console.log('[HEARTBEAT OUT] proximity-heartbeat →', outMsg);
-      this.websocketService.emit('proximity-heartbeat', outMsg);
-    }, 1000);
   }
 }
 
